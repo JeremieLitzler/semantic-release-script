@@ -37,6 +37,36 @@ ignored.
 
 When no tag exists yet, the current version is `0.0.0`.
 
+### The first release
+
+With no `v*` tag to start from, the whole history is scanned and the bump is
+applied to `0.0.0`, so the first release lands on `0.0.1`, `0.1.0` or `1.0.0`
+depending on what the commits contain. Expect the repository's very first
+commit to show up under `Others`.
+
+Reaching `1.0.0` therefore only happens on its own if the history holds a
+breaking change. To declare the first release stable whatever the commits say,
+force it:
+
+```bash
+./release.sh --dry-run --level major   # 0.0.0 -> 1.0.0
+./release.sh --level major
+```
+
+`--level` only overrides the bump. The notes are still built from the real
+commits, so a forced `1.0.0` with no breaking change simply has no
+`BREAKING CHANGES` section.
+
+Two neighbouring cases:
+
+- **The project already has releases, but not from this script.** Nothing to do
+  as long as the existing tags are named `v1.2.3`: the last one is picked up and
+  the next version follows from it.
+- **The history before a given point is not worth releasing.** Point the script
+  at where you want to start with `--since <ref>`. Careful, the version is then
+  read from `<ref>` too, so `--since` on something that is not a `v1.2.3` tag
+  restarts the count at `0.0.0` — pair it with `--level` when that matters.
+
 ### The notes
 
 Four sections, empty ones omitted: `BREAKING CHANGES`, `Features` (`feat`),
