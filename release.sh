@@ -19,6 +19,7 @@ ASSUME_YES=false
 DRY_RUN=false
 LOCAL_ONLY=false
 SINCE_REF=""
+TO_REF=""
 FORCE_LEVEL=""
 NOTES_OUT=""
 CHANGELOG_OUT=""
@@ -71,6 +72,10 @@ Options:
   -n, --dry-run         Do everything but push the tag and create the release.
   -l, --local           Create the tag locally, but neither push nor publish.
       --since <ref>     Read commits since <ref> instead of the last v* tag.
+                         This is the commit set on the last release.
+      --to <ref>        Read commits up to <ref> instead of HEAD, and create
+                         the tag on <ref> instead of HEAD. This is the commit
+                         to set on the next release.
       --level <level>   Force the bump: major | minor | patch.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
@@ -81,6 +86,13 @@ Steps (a human gate sits before each one):
   2. build the Markdown release notes
   3. create and push the tag
   4. create the GitHub release
+
+Rebuilding a history of releases:
+  Combine --since and --to to replay a specific commit range instead of the
+  usual "last tag..HEAD". Work oldest-first: create v0.0.1 on its commit, then
+  v0.0.2 on the next one, and so on. Once a tag exists, --since can often be
+  left out since the next release's range is auto-detected from the nearest
+  ancestor tag of --to.
 EOF
 }
 
@@ -92,6 +104,7 @@ while [[ $# -gt 0 ]]; do
     -n | --dry-run) DRY_RUN=true; shift ;;
     -l | --local)   LOCAL_ONLY=true; shift ;;
     --since)        SINCE_REF="${2:-}"; [[ -n $SINCE_REF ]] || die "--since needs a ref"; shift 2 ;;
+    --to)           TO_REF="${2:-}"; [[ -n $TO_REF ]] || die "--to needs a ref"; shift 2 ;;
     --level)        FORCE_LEVEL="${2:-}"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; shift 2 ;;
@@ -120,8 +133,13 @@ REPO_URL="https://github.com/${REPO}"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $CURRENT_BRANCH == "main" ]] || warn "you are on '${CURRENT_BRANCH}', not 'main'"
 
-if [[ -n $(git status --porcelain) ]]; then
-  warn "the working tree is not clean; the tag will only contain committed work"
+[[ -n $TO_REF ]] || TO_REF="HEAD"
+git rev-parse --verify --quiet "$TO_REF" >/dev/null || die "unknown ref: $TO_REF"
+
+if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
+  if [[ -n $(git status --porcelain) ]]; then
+    warn "the working tree is not clean; the tag will only contain committed work"
+  fi
 fi
 
 note "Fetching tags from origin..."
@@ -134,13 +152,13 @@ if [[ -n $SINCE_REF ]]; then
   git rev-parse --verify --quiet "$SINCE_REF" >/dev/null || die "unknown ref: $SINCE_REF"
   LAST_TAG="$SINCE_REF"
 else
-  LAST_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)
+  LAST_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$TO_REF" 2>/dev/null || true)
 fi
 
 if [[ -n $LAST_TAG ]]; then
-  RANGE="${LAST_TAG}..HEAD"
+  RANGE="${LAST_TAG}..${TO_REF}"
 else
-  RANGE="HEAD"
+  RANGE="${TO_REF}"
 fi
 
 CURRENT_VERSION="0.0.0"
@@ -154,12 +172,14 @@ mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
 # classify <subject> <body> -> breaking | feature | fix | other
 classify() {
   local subject="$1" body="$2" type="" bang=""
-  shopt -s nocasematch
   if [[ $subject =~ ^([a-zA-Z]+)(\([^\)]*\))?(!)?: ]]; then
     type="${BASH_REMATCH[1],,}"
     bang="${BASH_REMATCH[3]}"
   fi
-  if [[ -n $bang || $body =~ BREAKING[[:space:]_-]*CHANGES? ]]; then
+  # Conventional Commits requires the uppercase footer token "BREAKING CHANGE"
+  # (or its synonym "BREAKING-CHANGE"), followed by ": " or " #" — not just
+  # those words appearing anywhere in the body's prose.
+  if [[ -n $bang || $body =~ (^|$'\n')BREAKING[-\ ]CHANGE(:\ |\ \#) ]]; then
     printf 'breaking'
   elif [[ $type == "feat" ]]; then
     printf 'feature'
@@ -205,6 +225,7 @@ step "Step 1 — evaluate the new version"
 info "Repository      : ${REPO}"
 info "Branch          : ${CURRENT_BRANCH}"
 info "Commit range    : ${RANGE}${LAST_TAG:+ (last tag: ${LAST_TAG})}"
+[[ $TO_REF == "HEAD" ]] || info "Target ref      : ${TO_REF} (tag will be created there, not on HEAD)"
 info "Commits scanned : ${#COMMITS[@]}"
 info ""
 for i in "${!C_HASH[@]}"; do
@@ -337,15 +358,15 @@ gate "Continue to step 3 and create the tag ${NEW_TAG}?"
 step "Step 3 — create and push ${NEW_TAG}"
 
 if [[ $DRY_RUN == true ]]; then
-  note "[dry-run] git tag -a ${NEW_TAG} -m ${NEW_TAG}"
+  note "[dry-run] git tag -a ${NEW_TAG} -m ${NEW_TAG} ${TO_REF}"
   note "[dry-run] git push origin ${NEW_TAG}"
 elif [[ $LOCAL_ONLY == true ]]; then
-  git tag -a "$NEW_TAG" -m "$NEW_TAG"
-  info "Tag ${NEW_TAG} created on $(git rev-parse --short HEAD)."
+  git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
+  info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
   note "[local] not pushed to origin"
 else
-  git tag -a "$NEW_TAG" -m "$NEW_TAG"
-  info "Tag ${NEW_TAG} created on $(git rev-parse --short HEAD)."
+  git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
+  info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
   if ! git push origin "$NEW_TAG"; then
     git tag -d "$NEW_TAG" >/dev/null
     die "pushing ${NEW_TAG} failed — the local tag has been deleted, nothing was released"
