@@ -270,10 +270,32 @@ declare -a FEATURE_ISSUE=()  FEATURE_PLAIN=()
 declare -a FIX_ISSUE=()      FIX_PLAIN=()
 declare -a OTHER_ISSUE=()    OTHER_PLAIN=()
 
+# category_rank <category> -> larger means more significant. Used so an issue
+# referenced by several commits (a feature, its docs, its tests, ...) is
+# filed under the most significant category among them, rather than
+# whichever commit happens to be processed first.
+category_rank() {
+  case "$1" in
+    breaking) printf 4 ;;
+    feature)  printf 3 ;;
+    fix)      printf 2 ;;
+    *)        printf 1 ;;
+  esac
+}
+
 note "Resolving issue references with gh..."
+
+# Several commits often close out the same issue. They'd otherwise repeat
+# the same issue title on multiple lines, so each issue gets exactly one
+# bullet: ISSUE_ORDER remembers first-seen order (commits are newest-first)
+# while ISSUE_CATEGORY/ISSUE_RANK track the most significant category seen
+# so far for that issue.
+declare -a ISSUE_ORDER=()
+declare -A ISSUE_BULLET=() ISSUE_CATEGORY=() ISSUE_RANK=()
 
 for i in "${!C_HASH[@]}"; do
   subject="${C_SUBJECT[$i]}"
+  category="${C_CATEGORY[$i]}"
   title=""
   number=""
 
@@ -284,21 +306,34 @@ for i in "${!C_HASH[@]}"; do
 
   if [[ -n $title ]]; then
     bullet="- ${title} (#${number})"
-    kind="issue"
-  else
-    bullet="- ${subject} ([${C_SHORT[$i]}](${REPO_URL}/commit/${C_HASH[$i]}))"
-    kind="plain"
+    rank=$(category_rank "$category")
+    if [[ -z ${ISSUE_RANK[$number]+set} ]]; then
+      ISSUE_ORDER+=("$number")
+    fi
+    if [[ -z ${ISSUE_RANK[$number]+set} || $rank -gt ${ISSUE_RANK[$number]} ]]; then
+      ISSUE_RANK[$number]="$rank"
+      ISSUE_CATEGORY[$number]="$category"
+      ISSUE_BULLET[$number]="$bullet"
+    fi
+    continue
   fi
 
-  case "${C_CATEGORY[$i]}:${kind}" in
-    breaking:issue) BREAKING_ISSUE+=("$bullet") ;;
-    breaking:plain) BREAKING_PLAIN+=("$bullet") ;;
-    feature:issue)  FEATURE_ISSUE+=("$bullet") ;;
-    feature:plain)  FEATURE_PLAIN+=("$bullet") ;;
-    fix:issue)      FIX_ISSUE+=("$bullet") ;;
-    fix:plain)      FIX_PLAIN+=("$bullet") ;;
-    other:issue)    OTHER_ISSUE+=("$bullet") ;;
-    other:plain)    OTHER_PLAIN+=("$bullet") ;;
+  bullet="- ${subject} ([${C_SHORT[$i]}](${REPO_URL}/commit/${C_HASH[$i]}))"
+  case "$category" in
+    breaking) BREAKING_PLAIN+=("$bullet") ;;
+    feature)  FEATURE_PLAIN+=("$bullet") ;;
+    fix)      FIX_PLAIN+=("$bullet") ;;
+    other)    OTHER_PLAIN+=("$bullet") ;;
+  esac
+done
+
+for number in "${ISSUE_ORDER[@]}"; do
+  bullet="${ISSUE_BULLET[$number]}"
+  case "${ISSUE_CATEGORY[$number]}" in
+    breaking) BREAKING_ISSUE+=("$bullet") ;;
+    feature)  FEATURE_ISSUE+=("$bullet") ;;
+    fix)      FIX_ISSUE+=("$bullet") ;;
+    other)    OTHER_ISSUE+=("$bullet") ;;
   esac
 done
 
