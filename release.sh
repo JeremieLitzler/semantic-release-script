@@ -346,7 +346,7 @@ section() {
   local -n issues="$issues_name"
   local -n plain="$plain_name"
   (( ${#issues[@]} + ${#plain[@]} > 0 )) || return 0
-  printf '## %s\n\n' "$heading" >>"$NOTES_FILE"
+  printf '### %s\n\n' "$heading" >>"$NOTES_FILE"
   local line
   for line in "${issues[@]}" "${plain[@]}"; do
     printf '%s\n' "$line" >>"$NOTES_FILE"
@@ -376,8 +376,6 @@ if [[ -n $CHANGELOG_OUT ]]; then
   {
     printf '# Changelog\n\n'
     printf '## %s (%s)\n\n' "$NEW_TAG" "$(date +%Y-%m-%d)"
-    # The notes use "##" for their sections, one level down inside a changelog.
-    sed 's/^## /### /' "$NOTES_FILE"
     if [[ -f $CHANGELOG_OUT ]]; then
       tail -n +2 "$CHANGELOG_OUT" | sed '1{/^$/d;}'
     fi
