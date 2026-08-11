@@ -164,6 +164,14 @@ fi
 CURRENT_VERSION="0.0.0"
 if [[ $LAST_TAG =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
   CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+elif [[ -n $LAST_TAG ]]; then
+  # --since accepts any ref, not just a version tag (e.g. a commit hash when
+  # replaying history). Resolve the nearest reachable version tag so the
+  # current version is still detected correctly.
+  VERSION_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$LAST_TAG" 2>/dev/null || true)
+  if [[ $VERSION_TAG =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+  fi
 fi
 
 mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
