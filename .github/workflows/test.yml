@@ -1,0 +1,23 @@
+name: test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # jq, the only other dev dependency, is preinstalled on ubuntu-latest.
+      # tests/live.bats shows as skipped: the live suite never runs in CI.
+      - name: Run the bats suites
+        run: tests/libs/bats-core/bin/bats tests/
