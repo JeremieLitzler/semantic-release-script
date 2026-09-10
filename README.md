@@ -10,8 +10,8 @@ logged in (`gh auth login`).
 ## Releasing
 
 ```bash
-./release.sh --dry-run   # see the version and the notes, change nothing
-./release.sh             # the real thing, one confirmation per step
+./scripts/release/release.sh --dry-run   # see the version and the notes, change nothing
+./scripts/release/release.sh             # the real thing, one confirmation per step
 ```
 
 | Option | Effect |
@@ -49,8 +49,8 @@ breaking change. To declare the first release stable whatever the commits say,
 force it:
 
 ```bash
-./release.sh --dry-run --level major   # 0.0.0 -> 1.0.0
-./release.sh --level major
+./scripts/release/release.sh --dry-run --level major   # 0.0.0 -> 1.0.0
+./scripts/release/release.sh --level major
 ```
 
 `--level` only overrides the bump. The notes are still built from the real
@@ -95,30 +95,43 @@ series of releases in one file, for instance to review the test runs.
 
 ## Testing it
 
-```bash
-./tests/create-dummy-issues.sh      # 7 throwaway issues, numbers saved to tests/dummy-issues.env
-./tests/generate-dummy-changes.sh   # 14 commits touching DUMMY-COMMITS-TARGET.md
-./release.sh --dry-run              # check the result against COMMIT-MESSAGES.md
-```
-
-The dataset covers features with and without an issue, bug fixes, a breaking
-change flagged with `!` and one flagged in the body, the other conventional
-types, and a reference to a number that is not a real issue.
-`COMMIT-MESSAGES.md` records what each commit should produce.
-
-To rehearse a series of releases instead of a single one, walk a throwaway
-branch through the dataset and release at each stop. Each run picks up the tag
-left by the previous one, so the versions chain the way they would in real life:
+Two [bats](https://github.com/bats-core/bats-core) suites test `release.sh` without touching this repository's history or tracker. bats, bats-support and bats-assert are pinned as git submodules under `tests/libs/`, and [`jq`](https://jqlang.org/) is the only other dev dependency.
 
 ```bash
-git switch -c reltest <commit 7>
-./release.sh --local --yes --changelog tests/CHANGELOG.md   # patch -> v0.0.1
-git merge --ff-only <commit 12>
-./release.sh --local --yes --changelog tests/CHANGELOG.md   # minor -> v0.1.0
-git merge --ff-only <commit 14>
-./release.sh --local --yes --changelog tests/CHANGELOG.md   # major -> v1.0.0
-git switch main && git branch -d reltest
+git submodule update --init          # once per clone
+tests/libs/bats-core/bin/bats tests/ # the fixture suite; the live suite shows as skipped
 ```
 
-`tests/CHANGELOG.md` then holds the three releases, newest on top. Clean up the
-rehearsal with `git tag -d v0.0.1 v0.1.0 v1.0.0`.
+### The fixture suite
+
+Each test builds a throwaway repository in a temp dir, with a bare repository as its `origin`, and runs `release.sh --yes` with a fake `gh` first on `PATH` (`tests/helpers/fake-gh/gh`). The fake runs the real `--jq` expressions over GitHub-shaped JSON, answers an issue number no test declared like a 404, checks `--verify-tag` against the bare `origin`, and logs every call. Tests declare the GitHub state they need with `given_issue` and `given_pull_request`.
+
+| File | Covers |
+| --- | --- |
+| `tests/version.bats` | the bump each commit type causes, the baseline, the first release, `--level` |
+| `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
+| `tests/replay.bats` | `--since` and `--to` |
+| `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
+| `tests/options.bats` | `--notes`, `--changelog`, bad arguments, the preflight checks |
+
+The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.
+
+Every fixture commit has a fixed author, committer and date, so its hashes are the same on every machine, and the golden files hold them literally. After a deliberate change to the notes or the dataset, regenerate the golden files and review the diff in git:
+
+```bash
+UPDATE_GOLDEN=1 tests/libs/bats-core/bin/bats tests/
+```
+
+`.github/workflows/test.yml` runs the suite on every pull request to `main` and every push to `main`.
+
+### The live suite
+
+`tests/live.bats` keeps the fake honest: it runs the real `gh`, logged in as you, against the sandbox [`JeremieLitzler/semantic-release-script-tests`](https://github.com/JeremieLitzler/semantic-release-script-tests), and never runs in CI.
+
+```bash
+LIVE=1 tests/libs/bats-core/bin/bats tests/live.bats
+```
+
+In a fresh clone in a temp dir, it resets the sandbox's `main` to `Initial commit`, pushes the reference dataset, releases `v1.0.0`, and diffs its notes against the reference golden once the repository name and the hashes are normalised. On success it deletes the release and the tag and resets `main`. On failure it leaves them on GitHub for inspection, and the next run's reset clears them.
+
+The sandbox's issues and closed pull request are seeded once by `tests/live/seed-sandbox.sh`. It's idempotent, and it writes `tests/fixtures/reference-issues.env`, the number and title map both suites build their commits from.
