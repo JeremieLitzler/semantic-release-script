@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+#
+# gh — a fake GitHub CLI for the fixture suite, put first on PATH.
+#
+# It answers the four calls release.sh makes, and fails loudly on any other,
+# so a new call in release.sh can't slip through unnoticed. It stays faithful
+# where fidelity catches bugs:
+#
+#   * the GitHub state is raw GitHub-shaped JSON, and --jq runs the real jq
+#     expression over it, so a broken expression fails the tests;
+#   * an issue number no test declared answers like a real 404: the error
+#     payload on stdout, a message on stderr, exit 1;
+#   * `release create --verify-tag` refuses a tag the bare `origin` lacks.
+#
+# Every call is logged, one line per call, to $FAKE_GH_STATE/calls.log, and the
+# notes of each release are copied to $FAKE_GH_STATE/releases/<tag>.md.
+#
+# It answers for $FIXTURE_REPO_NAME. The state lives in $FAKE_GH_STATE, filled
+# by the given_* helpers in tests/helpers/common.bash:
+#   issues/<number>.json   an issue or a pull request, as `gh api` returns it
+#   logged-out             present when `gh auth status` must fail
+
+set -euo pipefail
+
+STATE="${FAKE_GH_STATE:?FAKE_GH_STATE is not set}"
+REPO_NAME="${FIXTURE_REPO_NAME:?FIXTURE_REPO_NAME is not set}"
+
+mkdir -p "$STATE/releases"
+printf '%s\n' "$*" >>"$STATE/calls.log"
+
+unsupported() {
+  printf 'fake gh: unsupported call: gh %s\n' "$*" >&2
+  exit 64
+}
+
+# print_json <json file> [jq expression] — what gh prints for a JSON answer.
+# jq writes CRLF on Windows; the real gh doesn't, so neither does the fake.
+print_json() {
+  local file="$1" expression="${2:-.}"
+  jq -r "$expression" <"$file" | tr -d '\r'
+}
+
+# jq_option <args...> -> the value of --jq, if any
+jq_option() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --jq) printf '%s' "${2:?--jq needs an expression}"; return 0 ;;
+    esac
+    shift
+  done
+}
+
+auth_status() {
+  if [[ -e $STATE/logged-out ]]; then
+    printf 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n' >&2
+    exit 1
+  fi
+  printf 'github.com\n  Logged in to github.com account fixture-owner\n'
+}
+
+repo_view() {
+  local json="$STATE/repo.json"
+  jq -n --arg repo "$REPO_NAME" \
+    '{nameWithOwner: $repo, name: ($repo | split("/")[1]), owner: {login: ($repo | split("/")[0])}}' >"$json"
+  print_json "$json" "$(jq_option "$@")"
+}
+
+api() {
+  local path="$1"; shift
+  if [[ $path =~ ^repos/([^/]+/[^/]+)/issues/([0-9]+)$ ]]; then
+    local file="$STATE/issues/${BASH_REMATCH[2]}.json"
+    if [[ ${BASH_REMATCH[1]} == "$REPO_NAME" && -f $file ]]; then
+      print_json "$file" "$(jq_option "$@")"
+      return 0
+    fi
+    printf '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/issues/issues#get-an-issue","status":"404"}\n'
+    printf 'gh: Not Found (HTTP 404)\n' >&2
+    exit 1
+  fi
+  unsupported api "$path" "$@"
+}
+
+release_create() {
+  local tag="$1"; shift
+  local repo="" notes_file="" verify_tag=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)       repo="${2:?--repo needs a value}"; shift 2 ;;
+      --title)      : "${2:?--title needs a value}"; shift 2 ;;
+      --notes-file) notes_file="${2:?--notes-file needs a value}"; shift 2 ;;
+      --verify-tag) verify_tag=true; shift ;;
+      *)            unsupported release create "$tag" "$@" ;;
+    esac
+  done
+  [[ -n $repo && -n $notes_file ]] || unsupported release create "$tag" "(without --repo or --notes-file)"
+
+  if [[ $verify_tag == true ]] && ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+    printf "tag %s doesn't exist in the repo %s, aborting due to --verify-tag flag\n" "$tag" "$repo" >&2
+    exit 1
+  fi
+  if [[ -e $STATE/releases/${tag}.md ]]; then
+    printf 'a release with the same tag name already exists: %s\n' "$tag" >&2
+    exit 1
+  fi
+  cp "$notes_file" "$STATE/releases/${tag}.md"
+  printf 'https://github.com/%s/releases/tag/%s\n' "$repo" "$tag"
+}
+
+case "${1:-} ${2:-}" in
+  "auth status")    auth_status ;;
+  "repo view")      shift 2; repo_view "$@" ;;
+  "release create") shift 2; release_create "$@" ;;
+  api\ *)           shift; api "$@" ;;
+  *)                unsupported "$@" ;;
+esac
