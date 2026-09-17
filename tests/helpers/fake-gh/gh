@@ -2,9 +2,9 @@
 #
 # gh — a fake GitHub CLI for the fixture suite, put first on PATH.
 #
-# It answers the four calls release.sh makes, and fails loudly on any other,
-# so a new call in release.sh can't slip through unnoticed. It stays faithful
-# where fidelity catches bugs:
+# It answers the four kinds of call release.sh makes, and fails loudly on any
+# other, so a new call in release.sh can't slip through unnoticed. It stays
+# faithful where fidelity catches bugs:
 #
 #   * the GitHub state is raw GitHub-shaped JSON, and --jq runs the real jq
 #     expression over it, so a broken expression fails the tests;
