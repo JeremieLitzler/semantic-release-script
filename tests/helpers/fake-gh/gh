@@ -18,6 +18,7 @@
 # It answers for $FIXTURE_REPO_NAME. The state lives in $FAKE_GH_STATE, filled
 # by the given_* helpers in tests/helpers/common.bash:
 #   issues/<number>.json   an issue or a pull request, as `gh api` returns it
+#   default-branch         the repository's default branch; absent means none
 #   logged-out             present when `gh auth status` must fail
 
 set -euo pipefail
@@ -59,9 +60,11 @@ auth_status() {
 }
 
 repo_view() {
-  local json="$STATE/repo.json"
-  jq -n --arg repo "$REPO_NAME" \
-    '{nameWithOwner: $repo, name: ($repo | split("/")[1]), owner: {login: ($repo | split("/")[0])}}' >"$json"
+  local json="$STATE/repo.json" default_branch=""
+  [[ ! -f $STATE/default-branch ]] || default_branch=$(cat "$STATE/default-branch")
+  jq -n --arg repo "$REPO_NAME" --arg branch "$default_branch" \
+    '{nameWithOwner: $repo, name: ($repo | split("/")[1]), owner: {login: ($repo | split("/")[0])},
+      defaultBranchRef: (if $branch == "" then null else {name: $branch} end)}' >"$json"
   print_json "$json" "$(jq_option "$@")"
 }
 
