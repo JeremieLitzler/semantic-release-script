@@ -90,3 +90,16 @@ setup() {
   assert_failure 1
   assert_output --partial "unknown ref: no-such-ref"
 }
+
+@test "--since a version tag takes the baseline from that tag, not from the nearest one" {
+  tag_version v1.0.0 "${REFERENCE_COMMITS[8]}"
+  tag_version v1.5.0 "${REFERENCE_COMMITS[12]}"
+  push_fixture
+
+  run_release --dry-run --since v1.0.0 --to "${REFERENCE_COMMITS[14]}"
+
+  assert_success
+  assert_line "Commit range    : v1.0.0..${REFERENCE_COMMITS[14]} (last tag: v1.0.0)"
+  assert_line "Commits scanned : 6"
+  assert_line "Version         : 1.0.0 -> 2.0.0"
+}
