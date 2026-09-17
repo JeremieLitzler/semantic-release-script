@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
-# The options and the preflight checks: --notes, --changelog, --help, bad
-# arguments, and what release.sh needs from its environment.
+# The options and the preflight checks: --notes, --changelog, --trunk, --help,
+# bad arguments, and what release.sh needs from its environment.
 
 load helpers/common
 
