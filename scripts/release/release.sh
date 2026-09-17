@@ -118,6 +118,73 @@ case "$FORCE_LEVEL" in
   *) die "--level must be one of: major, minor, patch" ;;
 esac
 
+# ------------------------------------------------------------------- baseline
+#
+# The baseline is the version tag the next version is computed from.
+# resolve_baseline works it out in one place — the tags origin holds, the ref
+# the commit range starts at, the version that ref carries — and
+# baseline_refusal words the reasons it has to stop a release, so a refusal
+# still to come is added there rather than inline.
+
+# A version tag is named vMAJOR.MINOR.PATCH. The glob narrows `git describe`
+# to those tags; the regex reads the version out of one.
+VERSION_TAG_GLOB='v[0-9]*.[0-9]*.[0-9]*'
+VERSION_TAG_RE='^v?([0-9]+)\.([0-9]+)\.([0-9]+)'
+
+BASELINE_REF=""    # the ref the commit range starts at, empty on a first release
+CURRENT_VERSION="" # the version BASELINE_REF carries, 0.0.0 when there is none
+
+# baseline_refusal <name> [detail] — stop the release on a named baseline
+# refusal. The name picks the wording, so a refusal raised from more than one
+# place reads the same in each. An unrecognised name would leave `case`
+# returning 0 and the refusal silent, hence the last arm.
+baseline_refusal() {
+  local detail="${2:-}"
+  case "$1" in
+    unknown-ref) die "unknown ref: ${detail}" ;;
+    tag-taken)   die "tag ${detail} already exists locally" ;;
+    *)           die "baseline refused: $1" ;;
+  esac
+}
+
+# nearest_version_tag <ref> -> the nearest version tag reachable from <ref>, or
+# nothing when the ref reaches none.
+nearest_version_tag() {
+  git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$1" 2>/dev/null || true
+}
+
+# resolve_baseline <target ref> [since ref] -> BASELINE_REF and CURRENT_VERSION.
+#
+# Without --since the baseline is the nearest version tag the target ref
+# reaches. With one it is the --since ref itself, which accepts any ref, not
+# just a version tag (a commit hash when replaying history): the nearest
+# version tag behind it then answers for the current version.
+resolve_baseline() {
+  local target="$1" since="${2:-}"
+
+  note "Fetching tags from origin..."
+  # A fetch that fails leaves the stale local tags in place and the version is
+  # computed from them.
+  git fetch --tags --quiet origin || warn "could not fetch tags from origin"
+
+  if [[ -n $since ]]; then
+    git rev-parse --verify --quiet "$since" >/dev/null || baseline_refusal unknown-ref "$since"
+    BASELINE_REF="$since"
+  else
+    BASELINE_REF=$(nearest_version_tag "$target")
+  fi
+
+  local version_tag="$BASELINE_REF"
+  if [[ -n $BASELINE_REF && ! $BASELINE_REF =~ $VERSION_TAG_RE ]]; then
+    version_tag=$(nearest_version_tag "$BASELINE_REF")
+  fi
+
+  CURRENT_VERSION="0.0.0"
+  if [[ $version_tag =~ $VERSION_TAG_RE ]]; then
+    CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+  fi
+}
+
 # ------------------------------------------------------------------ preflight
 
 (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (running ${BASH_VERSION})"
@@ -134,7 +201,7 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ $CURRENT_BRANCH == "main" ]] || warn "you are on '${CURRENT_BRANCH}', not 'main'"
 
 [[ -n $TO_REF ]] || TO_REF="HEAD"
-git rev-parse --verify --quiet "$TO_REF" >/dev/null || die "unknown ref: $TO_REF"
+git rev-parse --verify --quiet "$TO_REF" >/dev/null || baseline_refusal unknown-ref "$TO_REF"
 
 if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
   if [[ -n $(git status --porcelain) ]]; then
@@ -142,78 +209,12 @@ if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
   fi
 fi
 
-# ------------------------------------------------------------------- baseline
-#
-# The baseline is the version tag the next version is computed from. It is
-# resolved in one place, from the target ref and the optional --since, so
-# everything the baseline depends on — the tags origin holds, the history the
-# clone carries, the version tags already in the repository — is looked at
-# once, and every reason it has to refuse a release is worded once.
-
-# A version tag is named vMAJOR.MINOR.PATCH. The glob narrows `git describe`
-# to those tags; the regex reads the version out of one.
-VERSION_TAG_GLOB='v[0-9]*.[0-9]*.[0-9]*'
-VERSION_TAG_RE='^v?([0-9]+)\.([0-9]+)\.([0-9]+)'
-
-BASELINE_TAG=""    # the ref the commit range starts at, empty on a first release
-CURRENT_VERSION="" # the version BASELINE_TAG carries, 0.0.0 when there is none
-
-# baseline_refusal <name> [detail] — stop the release on a named baseline
-# refusal. The name picks the wording, so the refusals read alike and a new one
-# is added here rather than inline.
-baseline_refusal() {
-  local detail="${2:-}"
-  case "$1" in
-    unknown-ref) die "unknown ref: ${detail}" ;;
-    tag-taken)   die "tag ${detail} already exists locally" ;;
-    *)           die "baseline refused: $1" ;;
-  esac
-}
-
-# nearest_version_tag <ref> -> the nearest version tag reachable from <ref>, or
-# nothing when the ref reaches none.
-nearest_version_tag() {
-  git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$1" 2>/dev/null || true
-}
-
-# resolve_baseline <target ref> [since ref] -> BASELINE_TAG and CURRENT_VERSION.
-#
-# Without --since the baseline is the nearest version tag the target ref
-# reaches. With one it is the --since ref itself, which accepts any ref, not
-# just a version tag (a commit hash when replaying history): the nearest
-# version tag behind it then answers for the current version.
-resolve_baseline() {
-  local target="$1" since="${2:-}"
-
-  note "Fetching tags from origin..."
-  # A fetch that fails leaves the stale local tags in place and the version is
-  # computed from them.
-  git fetch --tags --quiet origin || warn "could not fetch tags from origin"
-
-  if [[ -n $since ]]; then
-    git rev-parse --verify --quiet "$since" >/dev/null || baseline_refusal unknown-ref "$since"
-    BASELINE_TAG="$since"
-  else
-    BASELINE_TAG=$(nearest_version_tag "$target")
-  fi
-
-  local version_tag="$BASELINE_TAG"
-  if [[ -n $BASELINE_TAG && ! $BASELINE_TAG =~ $VERSION_TAG_RE ]]; then
-    version_tag=$(nearest_version_tag "$BASELINE_TAG")
-  fi
-
-  CURRENT_VERSION="0.0.0"
-  if [[ $version_tag =~ $VERSION_TAG_RE ]]; then
-    CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-  fi
-}
-
 # ------------------------------------------------------- step 1: next version
 
 resolve_baseline "$TO_REF" "$SINCE_REF"
 
-if [[ -n $BASELINE_TAG ]]; then
-  RANGE="${BASELINE_TAG}..${TO_REF}"
+if [[ -n $BASELINE_REF ]]; then
+  RANGE="${BASELINE_REF}..${TO_REF}"
 else
   RANGE="${TO_REF}"
 fi
@@ -276,7 +277,7 @@ NEW_TAG="v${NEW_VERSION}"
 step "Step 1 — evaluate the new version"
 info "Repository      : ${REPO}"
 info "Branch          : ${CURRENT_BRANCH}"
-info "Commit range    : ${RANGE}${BASELINE_TAG:+ (last tag: ${BASELINE_TAG})}"
+info "Commit range    : ${RANGE}${BASELINE_REF:+ (last tag: ${BASELINE_REF})}"
 [[ $TO_REF == "HEAD" ]] || info "Target ref      : ${TO_REF} (tag will be created there, not on HEAD)"
 info "Commits scanned : ${#COMMITS[@]}"
 info ""
@@ -288,8 +289,9 @@ info ""
 info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with --level)}"
 info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
 
-# The one guard today against a baseline older than the latest release: it
-# only catches the next version colliding with an existing tag.
+# The only guard today against a non-monotonic version, and a narrow one: it
+# catches the next version colliding with a tag that already exists, not a
+# baseline older than the latest release in general.
 if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
   baseline_refusal tag-taken "$NEW_TAG"
 fi
