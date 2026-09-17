@@ -72,7 +72,7 @@ setup() {
 
 @test "the options taking a value fail without one" {
   local option
-  for option in --since --to --notes --changelog; do
+  for option in --since --to --notes --changelog --trunk; do
     run_release "$option"
     assert_failure 1
     assert_output --partial "${option} needs a"
@@ -100,13 +100,61 @@ setup() {
   assert_output --partial "not inside a git repository"
 }
 
-@test "a branch other than main only warns" {
+@test "the trunk is GitHub's default branch, not 'main'" {
+  given_default_branch develop
+  git switch -q -c develop
+
+  run_release --dry-run
+
+  assert_success
+  refute_output --partial "you are on"
+}
+
+@test "a branch that is neither the trunk nor a release branch only warns" {
+  given_default_branch develop
+
+  run_release --dry-run
+
+  assert_success
+  assert_output --partial "you are on 'main', not 'develop' or a 'release/*' branch"
+}
+
+@test "a release branch cut off the trunk is accepted" {
   git switch -q -c release/2026-09-10
 
   run_release --dry-run
 
   assert_success
-  assert_output --partial "you are on 'release/2026-09-10', not 'main'"
+  refute_output --partial "you are on"
+}
+
+@test "a detached HEAD is accepted" {
+  git switch -q --detach
+
+  run_release --dry-run
+
+  assert_success
+  refute_output --partial "you are on"
+}
+
+@test "--trunk names the trunk instead of asking GitHub" {
+  given_default_branch main
+  git switch -q -c develop
+
+  run_release --dry-run --trunk develop
+
+  assert_success
+  refute_output --partial "you are on"
+  refute_gh_call "repo view --json defaultBranchRef"
+}
+
+@test "a repository with no default branch is refused, pointing at --trunk" {
+  given_no_default_branch
+
+  run_release --dry-run
+
+  assert_failure 1
+  assert_output --partial "cannot resolve the trunk — name it with --trunk <name>"
 }
 
 @test "a dirty working tree only warns" {

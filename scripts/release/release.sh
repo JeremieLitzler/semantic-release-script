@@ -23,6 +23,7 @@ TO_REF=""
 FORCE_LEVEL=""
 NOTES_OUT=""
 CHANGELOG_OUT=""
+TRUNK=""
 
 # ---------------------------------------------------------------- presentation
 
@@ -76,6 +77,8 @@ Options:
       --to <ref>        Read commits up to <ref> instead of HEAD, and create
                          the tag on <ref> instead of HEAD. This is the commit
                          to set on the next release.
+      --trunk <name>    The branch releases are cut from. Defaults to the
+                         repository's default branch on GitHub.
       --level <level>   Force the bump: major | minor | patch.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
@@ -105,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     -l | --local)   LOCAL_ONLY=true; shift ;;
     --since)        SINCE_REF="${2:-}"; [[ -n $SINCE_REF ]] || die "--since needs a ref"; shift 2 ;;
     --to)           TO_REF="${2:-}"; [[ -n $TO_REF ]] || die "--to needs a ref"; shift 2 ;;
+    --trunk)        TRUNK="${2:-}"; [[ -n $TRUNK ]] || die "--trunk needs a name"; shift 2 ;;
     --level)        FORCE_LEVEL="${2:-}"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; shift 2 ;;
@@ -197,8 +201,23 @@ REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner) \
   || die "cannot resolve the GitHub repository for this checkout"
 REPO_URL="https://github.com/${REPO}"
 
+# The trunk is the one branch releases are cut from, and GitHub's default
+# branch answers for it: a repository whose trunk is `develop` needs no edit
+# here. --trunk names it when the two differ, or when there is no default
+# branch to read.
+if [[ -z $TRUNK ]]; then
+  TRUNK=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name // ""') \
+    || die "cannot resolve the default branch for this checkout"
+  [[ -n $TRUNK ]] || die "cannot resolve the trunk — name it with --trunk <name>"
+fi
+
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-[[ $CURRENT_BRANCH == "main" ]] || warn "you are on '${CURRENT_BRANCH}', not 'main'"
+# A release is cut from the trunk, or from a `release/*` branch off it. `HEAD`
+# is a detached checkout, which is how CI checks a chosen commit out.
+case "$CURRENT_BRANCH" in
+  "$TRUNK" | release/* | HEAD) ;;
+  *) warn "you are on '${CURRENT_BRANCH}', not '${TRUNK}' or a 'release/*' branch" ;;
+esac
 
 [[ -n $TO_REF ]] || TO_REF="HEAD"
 git rev-parse --verify --quiet "$TO_REF" >/dev/null || baseline_refusal unknown-ref "$TO_REF"
