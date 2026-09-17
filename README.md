@@ -20,9 +20,16 @@ logged in (`gh auth login`).
 | `-n`, `--dry-run` | Do everything but push the tag and create the release. |
 | `-l`, `--local` | Create the tag locally, but neither push it nor publish a release. |
 | `--since <ref>` | Read the commits since `<ref>` instead of the last `v*` tag. |
+| `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
+
+### The trunk
+
+A release is cut from the **trunk**, and the trunk is whatever GitHub reports as the repository's default branch — `gh repo view` answers for it, so a repository releasing from `develop` needs no change here. A `release/*` branch cut off the trunk is accepted too, and so is a detached `HEAD`, which is how CI checks out a chosen commit. Anything else only warns, it does not stop the release.
+
+`--trunk <name>` names the trunk instead, for a repository whose releases are cut from a branch that is not its default one, or one GitHub reports no default branch for.
 
 ### The version
 
@@ -104,7 +111,7 @@ tests/libs/bats-core/bin/bats tests/ # the fixture suite; the live suite shows a
 
 ### The fixture suite
 
-Each test builds a throwaway repository in a temp dir, with a bare repository as its `origin`, and runs `release.sh --yes` with a fake `gh` first on `PATH` (`tests/helpers/fake-gh/gh`). The fake runs the real `--jq` expressions over GitHub-shaped JSON, answers an issue number no test declared like a 404, checks `--verify-tag` against the bare `origin`, and logs every call. Tests declare the GitHub state they need with `given_issue` and `given_pull_request`.
+Each test builds a throwaway repository in a temp dir, with a bare repository as its `origin`, and runs `release.sh --yes` with a fake `gh` first on `PATH` (`tests/helpers/fake-gh/gh`). The fake runs the real `--jq` expressions over GitHub-shaped JSON, answers an issue number no test declared like a 404, checks `--verify-tag` against the bare `origin`, and logs every call. Tests declare the GitHub state they need with `given_issue`, `given_pull_request` and `given_default_branch`.
 
 | File | Covers |
 | --- | --- |
@@ -112,7 +119,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
-| `tests/options.bats` | `--notes`, `--changelog`, bad arguments, the preflight checks |
+| `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, bad arguments, the preflight checks |
 
 The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.
 

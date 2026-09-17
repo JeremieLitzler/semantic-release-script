@@ -29,7 +29,7 @@ _Avoid_: version regression, downgrade
 ### Branch topology
 
 **Trunk**:
-The one long-lived branch of a repository that releases are cut from. Every version tag should sit on a commit the trunk carries.
+The one long-lived branch of a repository that releases are cut from, read from GitHub's default branch unless `--trunk` names another. Every version tag should sit on a commit the trunk carries.
 _Avoid_: main branch, default branch (they usually coincide, but the trunk is the role)
 
 **Stranded tag**:

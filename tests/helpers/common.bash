@@ -14,7 +14,7 @@ load "${TESTS_DIR}/helpers/fixture"
 
 # setup_fixture — a throwaway repository in $REPO (the current directory
 # afterwards) with a single "Initial commit", a bare `origin` in $ORIGIN, and
-# the fake gh first on PATH, with no GitHub state declared yet.
+# the fake gh first on PATH, with `main` as the only GitHub state declared.
 setup_fixture() {
   # Keep the machine's git config out (autocrlf, signing, hooks, templates...).
   # The identity is the tagger of the tags release.sh creates.
@@ -27,6 +27,9 @@ setup_fixture() {
   export FAKE_GH_STATE="${BATS_TEST_TMPDIR}/gh"
   mkdir -p "${FAKE_GH_STATE}/issues"
   export PATH="${TESTS_DIR}/helpers/fake-gh:${PATH}"
+  # init_fixture_repo builds the repository on `main`, so that is the default
+  # branch GitHub reports until a test declares another one.
+  given_default_branch main
 
   ORIGIN="${BATS_TEST_TMPDIR}/origin.git"
   REPO="${BATS_TEST_TMPDIR}/repo"
@@ -97,6 +100,18 @@ given_reference_issues() {
 
 given_gh_logged_out() {
   touch "${FAKE_GH_STATE}/logged-out"
+}
+
+# given_default_branch <name> — the branch `gh repo view` reports as the
+# repository's default, the one release.sh resolves the trunk from.
+given_default_branch() {
+  printf '%s\n' "$1" >"${FAKE_GH_STATE}/default-branch"
+}
+
+# given_no_default_branch — GitHub reports none, as it does for a repository
+# without a commit.
+given_no_default_branch() {
+  rm -f "${FAKE_GH_STATE}/default-branch"
 }
 
 # ----------------------------------------------------------------- running
