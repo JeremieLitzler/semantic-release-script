@@ -230,6 +230,24 @@ setup() {
   refute_local_tag v1.2.4
 }
 
+@test "a tag fetch rejected over a clobber is refused, and says what git said" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  clobbering_tag_fixture v1.2.3
+
+  run_release --dry-run
+
+  assert_failure
+  # Origin is reachable here: it is a local tag disagreeing with the one origin
+  # holds that fails the fetch. git's own line is what tells the two apart, and
+  # --quiet used to swallow it, leaving the refusal with nothing behind it.
+  assert_output --partial "would clobber existing tag"
+  assert_output --partial "could not fetch the version tags from 'origin'"
+  assert_output --partial "git fetch --tags --force origin"
+  refute_output --partial "Version         :"
+}
+
 @test "a version whose tag already exists is refused" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"

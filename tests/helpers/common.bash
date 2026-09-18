@@ -61,6 +61,13 @@ unreachable_origin_fixture() {
   git remote set-url origin "${BATS_TEST_TMPDIR}/no-such-origin.git"
 }
 
+# clobbering_tag_fixture <tag> — move <tag> locally after origin took it, so
+# the two disagree. `git fetch --tags` then rejects that ref rather than
+# overwriting it, and fails with origin perfectly reachable.
+clobbering_tag_fixture() {
+  fixture_git tag -f -a "$1" -m "$1" HEAD
+}
+
 # ------------------------------------------------------------ GitHub state
 
 # given_issue <number> <title> [extra jq object] — the issue as `gh api`
