@@ -202,10 +202,10 @@ verify_ref() {
 baseline_refusal() {
   local detail="${2:-}"
   case "$1" in
-    shallow)   stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
-    no-tags)   stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — make '${detail}' reachable and run again" ;;
-    tag-taken) stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
-    *)         stop "$EXIT_REFUSED" "baseline refused: $1" ;;
+    shallow)    stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
+    stale-tags) stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
+    tag-taken)  stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
+    *)          stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
 }
 
@@ -233,14 +233,20 @@ resolve_baseline() {
   note "Fetching tags from origin..."
   # The tags are what the baseline is read from, so a fetch that fails is not a
   # detail to warn about: it leaves the stale local tags in place, and a version
-  # computed from them can sit below a release origin already holds.
+  # computed from them can sit below a release origin already holds. No flag
+  # escapes it; the README's "Tags that can't be fetched" says why --local and
+  # --dry-run are no exception.
   #
-  # No flag escapes it. --local writes a real version tag to the machine, the
-  # one its author pushes by hand later, and --dry-run exists to preview the
-  # version a real run would cut — a preview computed from tags a real run would
-  # refuse is worth less than no preview. Offline never reaches here anyway:
-  # preflight's `gh auth status` and `gh repo view` both call the API first.
-  git fetch --tags --quiet origin || baseline_refusal no-tags origin
+  # Captured rather than --quiet, because the reasons differ too much to guess
+  # at: an unreachable origin says so itself, while a local tag that disagrees
+  # with origin's is a "! [rejected] ... would clobber existing tag" that
+  # --quiet swallows whole, leaving a refusal with nothing behind it. Held back
+  # until the fetch fails, so an ordinary run still prints none of it.
+  local fetch_output=""
+  if ! fetch_output=$(git fetch --tags origin 2>&1); then
+    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
+    baseline_refusal stale-tags origin
+  fi
 
   if [[ -n $since ]]; then
     verify_ref "$since"

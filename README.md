@@ -68,11 +68,14 @@ On a shallow checkout you already have, `git fetch --unshallow` fills in the res
 
 The version is computed from the tags, so the script fetches them from `origin` before it reads a baseline. When that fetch fails — a lost network, a remote that moved, an access that was revoked — the local tags stay as they were, and `origin` may well hold releases they know nothing about. A baseline read from them is then older than the last release, and the version computed from it lands on or below a version already published.
 
-So the script refuses there too, with code `3`, naming the remote it could not reach:
+So the script refuses there too, with code `3`, naming the remote and repeating what `git` itself said, since the reasons want different fixes:
 
 ```
-x could not fetch the version tags from 'origin': the local tags may be stale, and the baseline read from them older than the last release — make 'origin' reachable and run again
+! [rejected] v1.2.3     -> v1.2.3  (would clobber existing tag)
+x could not fetch the version tags from 'origin': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make 'origin' reachable, or let its tags win with git fetch --tags --force origin
 ```
+
+That second reason is the one worth knowing about: a tag that exists both locally and on `origin`, pointing at different commits, makes `git fetch --tags` reject that ref rather than overwrite it — and the fetch fails with `origin` perfectly reachable. The tags really are out of sync, so the refusal is right, but no amount of network fixes it. `git fetch --tags --force origin` lets `origin`'s tags win, which is what you want when `origin` is where the releases live.
 
 No flag escapes it. `--local` writes a real version tag to your machine — the one you push by hand afterwards — so a wrong version there is only a wrong version that arrives more slowly. And `--dry-run` exists to preview the version a real run would cut: a preview computed from tags a real run would refuse is worth less than no preview at all. Being offline never reaches this guard anyway, since the preflight `gh auth status` and `gh repo view` both call the API first and fail with code `1`.
 
