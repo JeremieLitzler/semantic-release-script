@@ -45,6 +45,14 @@ push_fixture() {
   git push -q origin main --tags
 }
 
+# push_trunk_fixture <name> — origin holds <name> at the current commit.
+# push_fixture only ever pushes `main`, and the trunk is read from origin, so a
+# test whose trunk is a branch of another name has to put it there before
+# release.sh looks for it.
+push_trunk_fixture() {
+  git push -q origin "HEAD:refs/heads/$1"
+}
+
 # shallow_clone_fixture — swap the working repository for a depth-1 clone of
 # origin, the checkout CI hands a job when nobody sets fetch-depth. The file://
 # URL is what makes --depth count: git ignores it on a plain path.

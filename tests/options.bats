@@ -102,6 +102,7 @@ setup() {
 
 @test "the trunk is GitHub's default branch, not 'main'" {
   given_default_branch develop
+  push_trunk_fixture develop
   git switch -q -c develop
 
   run_release --dry-run
@@ -112,6 +113,7 @@ setup() {
 
 @test "a branch that is neither the trunk nor a release branch only warns" {
   given_default_branch develop
+  push_trunk_fixture develop
 
   run_release --dry-run
 
@@ -139,6 +141,7 @@ setup() {
 
 @test "--trunk names the trunk instead of asking GitHub" {
   given_default_branch main
+  push_trunk_fixture develop
   git switch -q -c develop
 
   run_release --dry-run --trunk develop
@@ -164,4 +167,63 @@ setup() {
 
   assert_success
   assert_output --partial "the working tree is not clean; the tag will only contain committed work"
+}
+
+@test "a release branch with a commit the trunk doesn't carry is refused" {
+  git switch -q -c release/2026-09-18
+  commit_change "chore: bump the version in package.json"
+
+  run_release
+
+  assert_failure
+  assert_output --partial "origin/main does not contain HEAD"
+  assert_output --partial "the tag would sit on a commit the trunk cannot reach"
+  # The guard sits before the version, like the shallow and stale-tag ones, so
+  # nothing downstream sees a version for a commit that was never tagged.
+  refute_output --partial "Version         :"
+  refute_local_tag v1.1.0
+  refute_remote_tag v1.1.0
+  assert_no_release_created
+}
+
+@test "a commit on the trunk that origin hasn't seen is refused, and writes no tag" {
+  commit_change "fix: keep the cart total in sync"
+
+  run_release --local
+
+  assert_failure
+  assert_output --partial "origin/main does not contain HEAD"
+  refute_local_tag v1.1.0
+}
+
+# --dry-run is the one flag that gets past this guard, and it has to: a
+# consumer previewing a pull request's release runs on the PR head, which the
+# trunk does not contain and will not until it merges. Nothing is tagged, so
+# there is nothing to strand — but the preview still says what a real run
+# would do.
+@test "--dry-run previews a ref the trunk doesn't carry, and warns instead" {
+  git switch -q -c release/2026-09-18
+  commit_change "chore: bump the version in package.json"
+
+  run_release --dry-run
+
+  assert_success
+  assert_output --partial "origin/main does not contain HEAD"
+  assert_output --partial "a real run would refuse to tag there"
+  assert_line "Version         : 1.0.0 -> 1.1.0"
+  refute_local_tag v1.1.0
+}
+
+# A trunk origin holds no branch for is the caller naming one that does not
+# exist, which verify_ref already calls a mistake in the command line rather
+# than a refusal: code 1, not 3. origin itself is known reachable by now, since
+# resolve_baseline just fetched the tags from it.
+@test "a trunk origin doesn't hold is an error, repeating what git said" {
+  run_release --dry-run --trunk no-such-branch
+
+  assert_failure 1
+  assert_output --partial "couldn't find remote ref no-such-branch"
+  assert_output --partial "cannot fetch the trunk 'no-such-branch' from origin"
+  assert_output --partial "--trunk <name>"
+  refute_output --partial "Version         :"
 }

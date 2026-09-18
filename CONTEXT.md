@@ -33,7 +33,7 @@ The one long-lived branch of a repository that releases are cut from, read from 
 _Avoid_: main branch, default branch (they usually coincide, but the trunk is the role)
 
 **Stranded tag**:
-A version tag on a commit the trunk cannot reach, typically left on a retired branch whose commits were rebased onto the trunk under new hashes. It's invisible when the baseline is resolved from the trunk.
+A version tag on a commit the trunk cannot reach: left on a retired branch whose commits were rebased onto the trunk under new hashes, written on a `release/*` branch that grew a commit after it was cut, or written on a trunk commit nobody pushed. It's invisible when the baseline is resolved from the trunk.
 _Avoid_: orphan tag, lost tag
 
 **Twin**:
@@ -51,7 +51,7 @@ _Avoid_: outdated tags, out-of-sync tags
 ### Outcomes
 
 **Guard**:
-A check that stops a release over the repository's state rather than over the command line — the computed tag already existing, for instance. It refuses, it does not fail.
+A check that stops a release over the repository's state rather than over the command line — the computed tag already existing, for instance. It refuses, it does not fail. A guard over where the tag lands has nothing to stop under `--dry-run`, which writes no tag: there it warns instead of refusing.
 _Avoid_: validation, safety check
 
 **Refusal**:
