@@ -38,7 +38,7 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 | `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, or tags that could not be fetched from `origin`. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, or a target commit the trunk does not contain. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
@@ -78,6 +78,37 @@ x could not fetch the version tags from 'origin': the local tags may be stale, a
 That second reason is the one worth knowing about: a tag that exists both locally and on `origin`, pointing at different commits, makes `git fetch --tags` reject that ref rather than overwrite it — and the fetch fails with `origin` perfectly reachable. The tags really are out of sync, so the refusal is right, but no amount of network fixes it. `git fetch --tags --force origin` lets `origin`'s tags win, which is what you want when `origin` is where the releases live.
 
 No flag escapes it. `--local` writes a real version tag to your machine — the one you push by hand afterwards — so a wrong version there is only a wrong version that arrives more slowly. And `--dry-run` exists to preview the version a real run would cut: a preview computed from tags a real run would refuse is worth less than no preview at all. Being offline never reaches this guard anyway, since the preflight `gh auth status` and `gh repo view` both call the API first and fail with code `1`.
+
+### Tagging off the trunk
+
+The tag has to land on a commit the trunk carries. One that does not is stranded the moment it is written: the next release resolves its baseline from the trunk, `git describe` never reaches this tag, and the version count quietly restarts from an older release.
+
+Two ways in. A `release/*` branch cut off the trunk and then given one more commit — a version bump, a release note, a hotfix — puts the tag on a commit the trunk has never seen. And a trunk holding commits nobody pushed does the same from the other end: `git push origin v1.2.4` sends the tag and the objects it reaches, but it does not move `refs/heads/main` on `origin`.
+
+So the script checks the target against the trunk before it computes anything, and refuses with code `3`:
+
+```
+x origin/main does not contain HEAD (a1b2c3d): the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to main or rebase them onto it, and check --trunk when main is not the branch releases are cut from
+```
+
+That last clause is the one to read twice. The trunk defaults to GitHub's default branch, so a repository that cuts its releases from a branch that is **not** its default one gets the check pointed at the wrong branch, and the refusal is right about the drift but wrong about the fix. `--trunk <name>` is what puts it back.
+
+It is the trunk **`origin` holds** that answers, fetched at the time of the check, never the local branch. A CI job that checks a `release/*` ref out has no local trunk at all, and a stale local one would wave through exactly the commit the guard exists to catch. A consumer whose workflow already runs this check in YAML can drop it.
+
+`--dry-run` is the one flag that gets past it, and the only guard it gets past. The two above are about the version being **wrong**, so previewing one is worse than previewing nothing; this one is about where the tag **lands**, and a dry run writes no tag to strand. It also has to bend: previewing a pull request's release means running on the PR head, which the trunk does not contain and will not until it merges. So the preview happens, with the refusal a real run would raise reported as a warning:
+
+```
+! origin/main does not contain HEAD (a1b2c3d): a real run would refuse to tag there
+```
+
+`--local` does not get past it. It writes a real version tag to your machine, the one you push by hand afterwards, so a stranded tag there is only a stranded tag that arrives more slowly.
+
+The trunk has to exist on `origin` for any of this to be answerable. One that does not is a name you got wrong rather than a state the repository is in, so it is an error with code `1`, the same as any other ref that does not exist — `origin` is known reachable by then, since the tags were just fetched from it. `git`'s own reason comes with it:
+
+```
+fatal: couldn't find remote ref develop
+x cannot fetch the trunk 'develop' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>
+```
 
 ### The version
 
@@ -167,7 +198,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
-| `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, bad arguments, the preflight checks |
+| `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, the trunk containment guard, bad arguments, the preflight checks |
 | `tests/exit-codes.bats` | the code each outcome exits on: released, previewed, nothing to release, refused, error |
 
 The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.

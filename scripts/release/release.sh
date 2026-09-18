@@ -175,6 +175,10 @@ esac
 # baseline_refusal words the reasons it has to refuse a release, so a refusal
 # still to come is added there rather than inline. verify_ref sits beside it
 # for the one reason that is not a refusal: a ref the caller got wrong.
+#
+# verify_trunk_contains guards the other end of the same drift: the baseline is
+# resolved from the trunk, so a tag written where the trunk cannot reach it is
+# a baseline the next release will never find.
 
 # A version tag is named vMAJOR.MINOR.PATCH. The glob narrows `git describe`
 # to those tags; the regex reads the version out of one.
@@ -193,17 +197,18 @@ verify_ref() {
   git rev-parse --verify --quiet "$1" >/dev/null || die "unknown ref: $1"
 }
 
-# baseline_refusal <name> [detail] — refuse the release on a named baseline
-# refusal. The name picks the wording, so a refusal raised from more than one
-# place reads the same in each; every one of them is the repository's state
-# ruling the release out, so every one of them exits EXIT_REFUSED. An
+# baseline_refusal <name> [detail] [extra] — refuse the release on the named
+# baseline refusal. The name picks the wording, so a refusal raised from more
+# than one place reads the same in each; every one of them is the repository's
+# state ruling the release out, so every one of them exits EXIT_REFUSED. An
 # unrecognised name would leave `case` returning 0 and the refusal silent,
 # hence the last arm.
 baseline_refusal() {
-  local detail="${2:-}"
+  local detail="${2:-}" extra="${3:-}"
   case "$1" in
     shallow)    stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     stale-tags) stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
+    off-trunk)  stop "$EXIT_REFUSED" "origin/${detail} does not contain ${extra}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
     *)          stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
@@ -266,6 +271,64 @@ resolve_baseline() {
   fi
 }
 
+# verify_trunk_contains <target ref> — the trunk reaches <target>, or the
+# release stops.
+#
+# A version tag has to sit on a commit the trunk carries. One that does not is
+# a stranded tag from the moment it is written: the next release resolves its
+# baseline from the trunk, `git describe` never reaches this tag, and the
+# version count silently restarts from an older one. A `release/*` branch that
+# grew a commit after it was cut is the usual way in — a version bump, a note,
+# a hotfix — and a trunk holding commits nobody pushed is the other.
+#
+# It is the trunk origin holds that answers, never the local branch. A CI job
+# that checks a `release/*` ref out has no local trunk at all, and a stale
+# local one would wave through exactly the commit this guard exists to catch.
+# Hence the fetch, and FETCH_HEAD to read it: that is what the fetch just
+# wrote, whatever refspec the remote happens to be configured with.
+#
+# --dry-run warns where the others refuse, and it is the one guard that bends
+# that way. The shallow and stale-tag refusals are about the version being
+# wrong, so previewing one is worse than previewing nothing; this one is about
+# where the tag lands, and a dry run writes no tag to strand. Refusing anyway
+# would break the use the flag exists for: a consumer previewing a pull
+# request's release runs on the PR head, which the trunk does not contain and
+# never will until it merges.
+verify_trunk_contains() {
+  local target="$1"
+
+  note "Fetching the trunk '${TRUNK}' from origin..."
+  # An error, not a refusal. origin was reachable a moment ago: resolve_baseline
+  # fetched the tags from it, and refused the release when it could not. So a
+  # fetch that fails here is origin holding no branch by that name — a trunk the
+  # caller got wrong, which verify_ref already treats as EXIT_ERROR.
+  local fetch_output=""
+  if ! fetch_output=$(git fetch origin "$TRUNK" 2>&1); then
+    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
+    die "cannot fetch the trunk '${TRUNK}' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>"
+  fi
+
+  # Told apart rather than folded together: `--is-ancestor` answers 1 for a
+  # commit the trunk does not contain and something else when it could not
+  # tell, and reporting the second as the first would send its author off to
+  # rebase a branch that is already where it belongs.
+  local contained=0
+  git merge-base --is-ancestor "${target}^{commit}" FETCH_HEAD || contained=$?
+  case "$contained" in
+    0) return 0 ;;
+    1) ;;
+    *) die "cannot tell whether origin/${TRUNK} contains ${target}: git merge-base exited ${contained}" ;;
+  esac
+
+  local where
+  where="${target} ($(git rev-parse --short "${target}^{commit}"))"
+  if [[ $DRY_RUN == true ]]; then
+    warn "origin/${TRUNK} does not contain ${where}: a real run would refuse to tag there"
+    return 0
+  fi
+  baseline_refusal off-trunk "$TRUNK" "$where"
+}
+
 # ------------------------------------------------------------------ preflight
 
 (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (running ${BASH_VERSION})"
@@ -308,6 +371,11 @@ fi
 # ------------------------------------------------------- step 1: next version
 
 resolve_baseline "$TO_REF" "$SINCE_REF"
+# Before the version rather than before the tag, like the refusals above it: a
+# run that will refuse should refuse before it prints a version nothing can act
+# on. Under --dry-run it warns instead and the version follows, which is the
+# whole point of previewing a ref the trunk has yet to take.
+verify_trunk_contains "$TO_REF"
 
 if [[ -n $BASELINE_REF ]]; then
   RANGE="${BASELINE_REF}..${TO_REF}"
