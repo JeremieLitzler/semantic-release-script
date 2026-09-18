@@ -203,6 +203,7 @@ baseline_refusal() {
   local detail="${2:-}"
   case "$1" in
     shallow)   stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
+    no-tags)   stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — make '${detail}' reachable and run again" ;;
     tag-taken) stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
     *)         stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
@@ -230,9 +231,16 @@ resolve_baseline() {
   [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] || baseline_refusal shallow
 
   note "Fetching tags from origin..."
-  # A fetch that fails leaves the stale local tags in place and the version is
-  # computed from them.
-  git fetch --tags --quiet origin || warn "could not fetch tags from origin"
+  # The tags are what the baseline is read from, so a fetch that fails is not a
+  # detail to warn about: it leaves the stale local tags in place, and a version
+  # computed from them can sit below a release origin already holds.
+  #
+  # No flag escapes it. --local writes a real version tag to the machine, the
+  # one its author pushes by hand later, and --dry-run exists to preview the
+  # version a real run would cut — a preview computed from tags a real run would
+  # refuse is worth less than no preview. Offline never reaches here anyway:
+  # preflight's `gh auth status` and `gh repo view` both call the API first.
+  git fetch --tags --quiet origin || baseline_refusal no-tags origin
 
   if [[ -n $since ]]; then
     verify_ref "$since"

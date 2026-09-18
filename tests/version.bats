@@ -202,6 +202,34 @@ setup() {
   refute_output --partial "Version         :"
 }
 
+@test "a tag fetch that fails is refused before any version is computed" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  unreachable_origin_fixture
+
+  run_release --dry-run
+
+  assert_failure
+  assert_output --partial "could not fetch the version tags from 'origin'"
+  # Same point as the shallow guard: no version reaches the screen, so nothing
+  # downstream can act on one computed from tags that may be stale.
+  refute_output --partial "Version         :"
+}
+
+@test "a tag fetch that fails is refused under --local too, and writes no tag" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  unreachable_origin_fixture
+
+  run_release --local
+
+  assert_failure
+  assert_output --partial "could not fetch the version tags from 'origin'"
+  refute_local_tag v1.2.4
+}
+
 @test "a version whose tag already exists is refused" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"
