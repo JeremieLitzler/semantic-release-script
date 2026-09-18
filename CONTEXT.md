@@ -44,6 +44,20 @@ _Avoid_: copy, duplicate
 A checkout whose history is cut off at a fixed depth, so version tags older than the cut are unreachable and the baseline can silently fall back to an older tag or to `0.0.0`.
 _Avoid_: partial clone (a different git feature)
 
+### Outcomes
+
+**Guard**:
+A check that stops a release over the repository's state rather than over the command line — the computed tag already existing, for instance. It refuses, it does not fail.
+_Avoid_: validation, safety check
+
+**Refusal**:
+A guard stopping a release: the script says why and exits `3`, having written nothing. A mistake in the command line is not one, and exits `1`.
+_Avoid_: rejection, abort, error (an error is the other outcome)
+
+**Nothing to release**:
+A commit range holding no commit, so there is no version to compute. The ordinary state of a trunk between releases, not a refusal and not an error: it exits `2` of its own.
+_Avoid_: empty range, no changes, up to date
+
 ### Usage
 
 **Replay**:
