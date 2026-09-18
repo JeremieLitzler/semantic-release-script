@@ -7,7 +7,8 @@
 # finally publishes the GitHub release.
 #
 # Every step is separated from the next one by a human gate: nothing is written
-# to the remote before you say so.
+# to the remote before you say so. A --dry-run reaches no remote, so it runs
+# straight through, with no gate to answer.
 #
 # Requirements: git, bash >= 4, and the GitHub CLI (`gh`) already logged in.
 
@@ -74,6 +75,17 @@ gate() {
     note "-> $prompt (auto-confirmed with --yes)"
     return 0
   fi
+  # A dry run reaches no remote — no tag pushed, no release created — so the
+  # gates guard nothing and a CI job can preview a release with --dry-run
+  # alone, on a runner with no terminal to answer on.
+  #
+  # It is the remote a dry run leaves alone, not the disk: --notes and
+  # --changelog still write their file, now with no gate in front of them.
+  # --local still gates, since it writes a tag to the machine.
+  if [[ $DRY_RUN == true ]]; then
+    note "-> $prompt (skipped: --dry-run reaches no remote)"
+    return 0
+  fi
   if [[ ! -t 0 && ! -e /dev/tty ]]; then
     die "no terminal available to confirm '$prompt' — rerun with --yes"
   fi
@@ -96,6 +108,7 @@ Usage: ${SCRIPT_NAME} [options]
 Options:
   -y, --yes             Skip every human gate (unattended run).
   -n, --dry-run         Do everything but push the tag and create the release.
+                         Reaches no remote, so every gate is skipped.
   -l, --local           Create the tag locally, but neither push nor publish.
       --since <ref>     Read commits since <ref> instead of the last v* tag.
                          This is the commit set on the last release.
@@ -109,7 +122,7 @@ Options:
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
   -h, --help            Show this help.
 
-Steps (a human gate sits before each one):
+Steps (a human gate sits before each one, unless --dry-run):
   1. evaluate the new version from the commit range
   2. build the Markdown release notes
   3. create and push the tag
