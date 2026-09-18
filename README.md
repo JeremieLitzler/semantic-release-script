@@ -14,10 +14,14 @@ logged in (`gh auth login`).
 ./scripts/release/release.sh             # the real thing, one confirmation per step
 ```
 
+A real run stops at a human gate before each step. A dry run reaches no remote — no tag pushed, no release created — so its gates guard nothing: it runs straight through, and needs no terminal to answer on. That is what lets a CI job preview a release with `--dry-run` alone. The cost is local: a dry run no longer pauses between its steps.
+
+It is the remote a dry run leaves alone, not your disk. `--notes` and `--changelog` write their file under `--dry-run` exactly as they do on a real run, and now with no gate in front of them. `--local` still gates, because it writes a tag to your machine.
+
 | Option | Effect |
 | --- | --- |
 | `-y`, `--yes` | Skip every human gate (unattended run). |
-| `-n`, `--dry-run` | Do everything but push the tag and create the release. |
+| `-n`, `--dry-run` | Do everything but push the tag and create the release. Reaches no remote, so every gate is skipped. |
 | `-l`, `--local` | Create the tag locally, but neither push it nor publish a release. |
 | `--since <ref>` | Read the commits since `<ref>` instead of the last `v*` tag. |
 | `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
