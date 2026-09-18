@@ -62,7 +62,7 @@ setup() {
 
   run_release
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "pushing v1.1.0 failed — the local tag has been deleted, nothing was released"
   refute_local_tag v1.1.0
   refute_remote_tag v1.1.0

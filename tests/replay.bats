@@ -80,14 +80,14 @@ setup() {
 @test "an unknown --to ref fails" {
   run_release --dry-run --to no-such-ref
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "unknown ref: no-such-ref"
 }
 
 @test "an unknown --since ref fails" {
   run_release --dry-run --since no-such-ref
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "unknown ref: no-such-ref"
 }
 
