@@ -122,6 +122,22 @@ run_release() {
   run bash "$RELEASE_SH" --yes "$@"
 }
 
+# run_release_unanswered [options...] — run release.sh with no --yes and
+# nothing on stdin, the shape a CI job runs it in.
+#
+# A gate that is reached still reads from /dev/tty, which a developer's own
+# terminal answers for even with stdin closed: the timeout is what turns a
+# gate that came back into a failing test rather than a suite that hangs. It
+# is a convenience, not a dependency — macOS ships no timeout, and there the
+# test runs unbounded, still failing on a runner with no terminal.
+run_release_unanswered() {
+  if command -v timeout >/dev/null 2>&1; then
+    run timeout 30 bash "$RELEASE_SH" "$@" </dev/null
+  else
+    run bash "$RELEASE_SH" "$@" </dev/null
+  fi
+}
+
 # gh_calls -> every gh call made so far, one per line
 gh_calls() {
   cat "${FAKE_GH_STATE}/calls.log" 2>/dev/null || true

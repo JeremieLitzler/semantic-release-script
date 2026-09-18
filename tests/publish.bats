@@ -45,6 +45,16 @@ setup() {
   assert_no_release_created
 }
 
+# The gates skipped rather than answered, and the run reaching step 4: what
+# --dry-run leaves behind is the test above's business, not this one's.
+@test "--dry-run skips the gates: it runs to the end with no --yes and no answer" {
+  run_release_unanswered --dry-run
+
+  assert_success
+  assert_line --partial "(skipped: --dry-run reaches no remote)"
+  assert_line "[dry-run] no tag was pushed, so no release was created"
+}
+
 @test "--local creates the tag but neither pushes it nor creates the release" {
   run_release --local
 
