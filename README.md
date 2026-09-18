@@ -38,7 +38,7 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 | `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, or a shallow clone whose baseline is unreachable. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, or tags that could not be fetched from `origin`. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
@@ -63,6 +63,18 @@ So the script refuses to compute a version there, with code `3`, rather than com
 ```
 
 On a shallow checkout you already have, `git fetch --unshallow` fills in the rest.
+
+### Tags that can't be fetched
+
+The version is computed from the tags, so the script fetches them from `origin` before it reads a baseline. When that fetch fails — a lost network, a remote that moved, an access that was revoked — the local tags stay as they were, and `origin` may well hold releases they know nothing about. A baseline read from them is then older than the last release, and the version computed from it lands on or below a version already published.
+
+So the script refuses there too, with code `3`, naming the remote it could not reach:
+
+```
+x could not fetch the version tags from 'origin': the local tags may be stale, and the baseline read from them older than the last release — make 'origin' reachable and run again
+```
+
+No flag escapes it. `--local` writes a real version tag to your machine — the one you push by hand afterwards — so a wrong version there is only a wrong version that arrives more slowly. And `--dry-run` exists to preview the version a real run would cut: a preview computed from tags a real run would refuse is worth less than no preview at all. Being offline never reaches this guard anyway, since the preflight `gh auth status` and `gh repo view` both call the API first and fail with code `1`.
 
 ### The version
 

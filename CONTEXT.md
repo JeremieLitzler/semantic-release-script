@@ -44,6 +44,10 @@ _Avoid_: copy, duplicate
 A checkout whose history is cut off at a fixed depth, so version tags older than the cut are unreachable and the baseline can silently fall back to an older tag or to `0.0.0`.
 _Avoid_: partial clone (a different git feature)
 
+**Stale tags**:
+A local tag set origin has moved past, left behind when fetching the tags fails. The baseline read from it can be older than the last release, so the next version computed from it is non-monotonic.
+_Avoid_: outdated tags, out-of-sync tags
+
 ### Outcomes
 
 **Guard**:

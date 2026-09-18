@@ -88,16 +88,6 @@ setup() {
   assert_line "Version         : 1.0.0 -> 1.1.0"
 }
 
-@test "an origin that can't be fetched only warns" {
-  git remote set-url origin "${BATS_TEST_TMPDIR}/no-such-origin.git"
-
-  run_release --dry-run
-
-  assert_success
-  assert_output --partial "could not fetch tags from origin"
-  assert_line "Version         : 1.0.0 -> 1.1.0"
-}
-
 @test "the fake gh refuses to publish a tag origin doesn't hold (--verify-tag)" {
   printf 'notes\n' >"${BATS_TEST_TMPDIR}/notes.md"
 

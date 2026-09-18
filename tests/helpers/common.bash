@@ -54,6 +54,13 @@ shallow_clone_fixture() {
   cd "$shallow"
 }
 
+# unreachable_origin_fixture — point `origin` at a path that holds no
+# repository, so fetching the tags fails the way a lost network, a moved remote
+# or a revoked access does.
+unreachable_origin_fixture() {
+  git remote set-url origin "${BATS_TEST_TMPDIR}/no-such-origin.git"
+}
+
 # ------------------------------------------------------------ GitHub state
 
 # given_issue <number> <title> [extra jq object] — the issue as `gh api`
