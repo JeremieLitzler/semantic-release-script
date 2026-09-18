@@ -176,17 +176,17 @@ setup() {
   assert_line "Version         : 1.2.3 -> 1.3.0"
 }
 
-@test "a range with no commit to release fails" {
+@test "a range with no commit in it is nothing to release" {
   tag_version v1.2.3
   push_fixture
 
   run_release --dry-run
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "no commit to release in range 'v1.2.3..HEAD'"
 }
 
-@test "a version whose tag already exists fails" {
+@test "a version whose tag already exists is refused" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"
   tag_version v1.0.1
@@ -194,6 +194,6 @@ setup() {
 
   run_release --dry-run --since v1.0.0 --to v1.0.1
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "tag v1.0.1 already exists locally"
 }

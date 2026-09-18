@@ -25,6 +25,21 @@ logged in (`gh auth login`).
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 
+### Exit codes
+
+The script's contract with whatever runs it. A CI job reads the code rather than grepping the human-readable output.
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. |
+| `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
+| `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
+| `3` | Refused by a guard: the repository's state rules the release out, such as the computed tag already existing. |
+
+Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
+
+The four codes cover the outcomes the script decides on. They are not the only codes it can exit with: `set -e` lets a `git` or `gh` command that fails where nothing guards it surface its own status, `128` from `git` most often. Read any other code as an error, the same as `1`.
+
 ### The trunk
 
 A release is cut from the **trunk**, and the trunk is whatever GitHub reports as the repository's default branch — `gh repo view` answers for it, so a repository releasing from `develop` needs no change here. A `release/*` branch cut off the trunk is accepted too, and so is a detached `HEAD`, which is how CI checks out a chosen commit. Anything else only warns, it does not stop the release.
@@ -120,6 +135,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
 | `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, bad arguments, the preflight checks |
+| `tests/exit-codes.bats` | the code each outcome exits on: released, previewed, nothing to release, refused, error |
 
 The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.
 

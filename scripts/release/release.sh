@@ -15,6 +15,23 @@ set -euo pipefail
 
 SCRIPT_NAME=$(basename "$0")
 
+# ----------------------------------------------------------------- exit codes
+#
+# The contract with whatever runs the script. A consumer's CI reads the code
+# rather than grepping the output: a trunk that has only seen merges has
+# nothing to release, which is a normal day, not a broken pipeline.
+#
+# Adding an outcome means adding a code here, documenting it in usage() and in
+# the README, and pinning it in tests/exit-codes.bats.
+#
+# readonly on purpose: `exit` with an empty or non-numeric argument is itself
+# an exit 2, which is the code for nothing to release. A reassignment would
+# turn a broken run into the most benign outcome there is.
+readonly EXIT_OK=0                 # released, or previewed with --dry-run/--local
+readonly EXIT_ERROR=1              # bad usage, a missing tool, a failed push
+readonly EXIT_NOTHING_TO_RELEASE=2 # no commit in the range
+readonly EXIT_REFUSED=3            # a guard refused the release
+
 ASSUME_YES=false
 DRY_RUN=false
 LOCAL_ONLY=false
@@ -37,7 +54,14 @@ fi
 info() { printf '%s\n' "$*"; }
 note() { printf '%s%s%s\n' "$DIM" "$*" "$RESET"; }
 warn() { printf '%s! %s%s\n' "$YELLOW" "$*" "$RESET" >&2; }
-die()  { printf '%sx %s%s\n' "$RED" "$*" "$RESET" >&2; exit 1; }
+# stop <exit code> <reason...> — say why the release stops, and end on the code
+# that outcome is named by. die is the same thing for the plain error code, the
+# one most reasons end on.
+#
+# Never call either from a command substitution: `exit` would end the subshell
+# and the caller would carry on with the code lost.
+stop() { local code="$1"; shift; printf '%sx %s%s\n' "$RED" "$*" "$RESET" >&2; exit "$code"; }
+die()  { stop "$EXIT_ERROR" "$@"; }
 
 step() {
   printf '\n%s%s== %s ==%s\n\n' "$BOLD" "$BLUE" "$*" "$RESET"
@@ -58,7 +82,8 @@ gate() {
   read -r answer < /dev/tty || true
   case "$answer" in
     [yY] | [yY][eE][sS]) return 0 ;;
-    *) info "Stopped before: $prompt"; exit 0 ;;
+    # A human said no. Nothing was released, and nothing went wrong.
+    *) info "Stopped before: $prompt"; exit "$EXIT_OK" ;;
   esac
 }
 
@@ -90,6 +115,13 @@ Steps (a human gate sits before each one):
   3. create and push the tag
   4. create the GitHub release
 
+Exit codes:
+  0  released, or previewed with --dry-run or --local
+  1  error: bad usage, a missing tool, a failed push
+  2  nothing to release in the commit range
+  3  refused by a guard
+  *  anything else is git or gh failing unguarded (128, say): treat it as 1
+
 Rebuilding a history of releases:
   Combine --since and --to to replay a specific commit range instead of the
   usual "last tag..HEAD". Work oldest-first: create v0.0.1 on its commit, then
@@ -112,7 +144,7 @@ while [[ $# -gt 0 ]]; do
     --level)        FORCE_LEVEL="${2:-}"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; shift 2 ;;
-    -h | --help)    usage; exit 0 ;;
+    -h | --help)    usage; exit "$EXIT_OK" ;;
     *)              usage >&2; die "unknown option: $1" ;;
   esac
 done
@@ -127,8 +159,9 @@ esac
 # The baseline is the version tag the next version is computed from.
 # resolve_baseline works it out in one place — the tags origin holds, the ref
 # the commit range starts at, the version that ref carries — and
-# baseline_refusal words the reasons it has to stop a release, so a refusal
-# still to come is added there rather than inline.
+# baseline_refusal words the reasons it has to refuse a release, so a refusal
+# still to come is added there rather than inline. verify_ref sits beside it
+# for the one reason that is not a refusal: a ref the caller got wrong.
 
 # A version tag is named vMAJOR.MINOR.PATCH. The glob narrows `git describe`
 # to those tags; the regex reads the version out of one.
@@ -138,16 +171,26 @@ VERSION_TAG_RE='^v?([0-9]+)\.([0-9]+)\.([0-9]+)'
 BASELINE_REF=""    # the ref the commit range starts at, empty on a first release
 CURRENT_VERSION="" # the version BASELINE_REF carries, 0.0.0 when there is none
 
-# baseline_refusal <name> [detail] — stop the release on a named baseline
+# verify_ref <ref> — the ref exists, or the release stops.
+#
+# Not a refusal: a ref the caller named that does not exist is a mistake in the
+# command line, like a bad --level, so it ends on EXIT_ERROR. Both --since and
+# --to come through here, which is what keeps the wording identical for each.
+verify_ref() {
+  git rev-parse --verify --quiet "$1" >/dev/null || die "unknown ref: $1"
+}
+
+# baseline_refusal <name> [detail] — refuse the release on a named baseline
 # refusal. The name picks the wording, so a refusal raised from more than one
-# place reads the same in each. An unrecognised name would leave `case`
-# returning 0 and the refusal silent, hence the last arm.
+# place reads the same in each; every one of them is the repository's state
+# ruling the release out, so every one of them exits EXIT_REFUSED. An
+# unrecognised name would leave `case` returning 0 and the refusal silent,
+# hence the last arm.
 baseline_refusal() {
   local detail="${2:-}"
   case "$1" in
-    unknown-ref) die "unknown ref: ${detail}" ;;
-    tag-taken)   die "tag ${detail} already exists locally" ;;
-    *)           die "baseline refused: $1" ;;
+    tag-taken) stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
+    *)         stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
 }
 
@@ -172,7 +215,7 @@ resolve_baseline() {
   git fetch --tags --quiet origin || warn "could not fetch tags from origin"
 
   if [[ -n $since ]]; then
-    git rev-parse --verify --quiet "$since" >/dev/null || baseline_refusal unknown-ref "$since"
+    verify_ref "$since"
     BASELINE_REF="$since"
   else
     BASELINE_REF=$(nearest_version_tag "$target")
@@ -220,7 +263,7 @@ case "$CURRENT_BRANCH" in
 esac
 
 [[ -n $TO_REF ]] || TO_REF="HEAD"
-git rev-parse --verify --quiet "$TO_REF" >/dev/null || baseline_refusal unknown-ref "$TO_REF"
+verify_ref "$TO_REF"
 
 if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
   if [[ -n $(git status --porcelain) ]]; then
@@ -239,7 +282,11 @@ else
 fi
 
 mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
-(( ${#COMMITS[@]} > 0 )) || die "no commit to release in range '${RANGE}'"
+# Its own exit code: a range with nothing in it is the ordinary state of a
+# trunk between releases, and CI should not read it as a failure. The wording
+# stays as it was, for the consumers still grepping for it.
+(( ${#COMMITS[@]} > 0 )) \
+  || stop "$EXIT_NOTHING_TO_RELEASE" "no commit to release in range '${RANGE}'"
 
 # classify <subject> <body> -> breaking | feature | fix | other
 classify() {

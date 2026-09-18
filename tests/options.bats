@@ -58,7 +58,7 @@ setup() {
 @test "an unknown option fails with the usage" {
   run_release --bogus
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "Usage: release.sh [options]"
   assert_output --partial "unknown option: --bogus"
 }
@@ -66,7 +66,7 @@ setup() {
 @test "--level only accepts major, minor or patch" {
   run_release --level huge
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "--level must be one of: major, minor, patch"
 }
 
@@ -74,7 +74,7 @@ setup() {
   local option
   for option in --since --to --notes --changelog --trunk; do
     run_release "$option"
-    assert_failure 1
+    assert_failure
     assert_output --partial "${option} needs a"
   done
 }
@@ -84,7 +84,7 @@ setup() {
 
   run_release
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "gh is not logged in — run: gh auth login"
   refute_local_tag v1.1.0
   assert_no_release_created
@@ -96,7 +96,7 @@ setup() {
 
   run_release --dry-run
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "not inside a git repository"
 }
 
@@ -148,12 +148,12 @@ setup() {
   refute_gh_call "repo view --json defaultBranchRef"
 }
 
-@test "a repository with no default branch is refused, pointing at --trunk" {
+@test "a repository with no default branch fails, pointing at --trunk" {
   given_no_default_branch
 
   run_release --dry-run
 
-  assert_failure 1
+  assert_failure
   assert_output --partial "cannot resolve the trunk — name it with --trunk <name>"
 }
 
