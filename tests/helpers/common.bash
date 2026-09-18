@@ -45,6 +45,15 @@ push_fixture() {
   git push -q origin main --tags
 }
 
+# shallow_clone_fixture — swap the working repository for a depth-1 clone of
+# origin, the checkout CI hands a job when nobody sets fetch-depth. The file://
+# URL is what makes --depth count: git ignores it on a plain path.
+shallow_clone_fixture() {
+  local shallow="${BATS_TEST_TMPDIR}/shallow"
+  git clone -q --depth 1 --branch main "file://${ORIGIN}" "$shallow"
+  cd "$shallow"
+}
+
 # ------------------------------------------------------------ GitHub state
 
 # given_issue <number> <title> [extra jq object] — the issue as `gh api`

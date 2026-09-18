@@ -202,6 +202,7 @@ verify_ref() {
 baseline_refusal() {
   local detail="${2:-}"
   case "$1" in
+    shallow)   stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     tag-taken) stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
     *)         stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
@@ -221,6 +222,12 @@ nearest_version_tag() {
 # version tag behind it then answers for the current version.
 resolve_baseline() {
   local target="$1" since="${2:-}"
+
+  # Before the fetch, because the fetch cannot repair it: the tag refs come
+  # back, the commits they name stay behind the cut, and `git describe` reaches
+  # none of them. Only `true` refuses, so a git too old to know the option
+  # (< 2.15) leaves the release alone rather than claiming a shallow clone.
+  [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] || baseline_refusal shallow
 
   note "Fetching tags from origin..."
   # A fetch that fails leaves the stale local tags in place and the version is

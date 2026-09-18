@@ -186,6 +186,22 @@ setup() {
   assert_output --partial "no commit to release in range 'v1.2.3..HEAD'"
 }
 
+@test "a shallow clone is refused before any version is computed" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  shallow_clone_fixture
+
+  run_release --dry-run
+
+  assert_failure
+  assert_output --partial "shallow clone: the version tags behind the cut are unreachable"
+  assert_output --partial "fetch-depth: 0"
+  # The point of the guard: 0.0.0 never reaches the screen as this repository's
+  # current version, so nothing downstream can act on it.
+  refute_output --partial "Version         :"
+}
+
 @test "a version whose tag already exists is refused" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"

@@ -38,7 +38,7 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 | `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out, such as the computed tag already existing. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, or a shallow clone whose baseline is unreachable. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
@@ -49,6 +49,20 @@ The four codes cover the outcomes the script decides on. They are not the only c
 A release is cut from the **trunk**, and the trunk is whatever GitHub reports as the repository's default branch — `gh repo view` answers for it, so a repository releasing from `develop` needs no change here. A `release/*` branch cut off the trunk is accepted too, and so is a detached `HEAD`, which is how CI checks out a chosen commit. Anything else only warns, it does not stop the release.
 
 `--trunk <name>` names the trunk instead, for a repository whose releases are cut from a branch that is not its default one, or one GitHub reports no default branch for.
+
+### Shallow clones
+
+A **shallow clone** — `git clone --depth 1`, and the checkout `actions/checkout` hands a job when nobody sets `fetch-depth` — cuts the history off at a fixed depth. Every version tag behind the cut is then unreachable: `git describe` reaches no baseline, the current version falls back to `0.0.0`, and a repository sitting at `v1.2.3` would release `v0.0.1`. Fetching the tags does not repair it, since the tag refs come back but the commits they name stay behind the cut.
+
+So the script refuses to compute a version there, with code `3`, rather than computing a wrong one. Check out the full history instead:
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    fetch-depth: 0
+```
+
+On a shallow checkout you already have, `git fetch --unshallow` fills in the rest.
 
 ### The version
 
