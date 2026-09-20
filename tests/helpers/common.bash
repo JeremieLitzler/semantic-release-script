@@ -179,11 +179,15 @@ run_release_unanswered() {
 # Git Bash the test skips rather than hanging on a gate the developer's own
 # terminal would answer. CI runs on ubuntu, where the test runs for real.
 #
+# --wait is util-linux's, and busybox ships a setsid without it, so the flag is
+# what the skip asks about: looking the binary up would clear a guard that the
+# run then fails on anyway.
+#
 # timeout runs inside the new session, not around it: outside, it would signal
 # setsid and leave the release.sh it fathered running in a session of its own.
 run_release_no_terminal() {
-  command -v setsid >/dev/null 2>&1 \
-    || skip "setsid is needed to drop the controlling terminal"
+  setsid --wait true 2>/dev/null \
+    || skip "a setsid taking --wait is needed to drop the controlling terminal"
   if command -v timeout >/dev/null 2>&1; then
     run setsid --wait timeout 30 bash "$RELEASE_SH" "$@" </dev/null
   else
