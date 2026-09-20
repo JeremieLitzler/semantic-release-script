@@ -18,7 +18,7 @@ A real run stops at a human gate before each step. A dry run reaches no remote �
 
 A real run needs a terminal to answer on, or `--yes` in place of one. A runner has neither: there `/dev/tty` is still a device node, but nothing opens it, so the run stops at the first gate and exits `1` telling you to pass `--yes` — rather than reading the answer it could not get as a decline and going green having released nothing.
 
-It is the remote a dry run leaves alone, not your disk. `--notes` and `--changelog` write their file under `--dry-run` exactly as they do on a real run, and now with no gate in front of them. `--local` still gates, because it writes a tag to your machine.
+It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog` and `--summary` write their file under `--dry-run` exactly as they do on a real run, and now with no gate in front of them. `--local` still gates, because it writes a tag to your machine.
 
 | Option | Effect |
 | --- | --- |
@@ -30,6 +30,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes` and `--changel
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
+| `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
 
 ### Exit codes
 
@@ -45,6 +46,39 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
 The four codes cover the outcomes the script decides on. They are not the only codes it can exit with: `set -e` lets a `git` or `gh` command that fails where nothing guards it surface its own status, `128` from `git` most often. Read any other code as an error, the same as `1`.
+
+### The release summary
+
+The exit code says how a run ended; `--summary <file>` says what it decided, so a CI job reads the version off a file instead of grepping output meant for a human, or parsing the notes.
+
+```
+tag=v1.1.0
+version=1.1.0
+bump=minor
+baseline=1.0.0
+released=yes
+```
+
+| Key | Value |
+| --- | --- |
+| `tag` | The version tag of the release: `v1.1.0`. |
+| `version` | The same without the `v`: `1.1.0`. |
+| `bump` | The step from `baseline` to `version`: `major`, `minor` or `patch`. `none` on a resume, where the version was read off the tag rather than computed. |
+| `baseline` | The version the bump was applied to: `1.0.0`, and `0.0.0` on a first release. Always a version, never a ref, whatever `--since` names. |
+| `released` | `yes` when the GitHub release was created, `no` otherwise — a preview with `--dry-run` or `--local`, or a gate a human declined. |
+
+Bare `key=value` lines, unquoted, one per line: every value is a tag, a version, a bump name or `yes`/`no`, so the file reads as it stands, whether you source it into a shell or append it to `$GITHUB_OUTPUT`. Append it — the script writes its own file whole, and pointing `--summary` straight at `$GITHUB_OUTPUT` would wipe whatever the step had already written there.
+
+```yaml
+- id: release
+  run: |
+    ./scripts/release/release.sh --yes --summary "$RUNNER_TEMP/release.env"
+    cat "$RUNNER_TEMP/release.env" >>"$GITHUB_OUTPUT"
+- if: steps.release.outputs.released == 'yes'
+  run: echo "published ${{ steps.release.outputs.tag }}"
+```
+
+A run writes the file once it has a version and nothing left that could change it, so every line of the file is final. A run that decided no version writes nothing at all: nothing to release (`2`), a guard's refusal (`3`) and an error (`1`) leave the path alone — including a file a previous run wrote there, which is left exactly as it was rather than cleared. So read the exit code first and the file second: a summary only answers for the run that wrote it.
 
 ### The trunk
 
@@ -239,6 +273,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/resume.bats` | resuming a half-published release: what is detected, what is left alone, what a resume writes |
 | `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, the trunk containment guard, bad arguments, the preflight checks |
 | `tests/exit-codes.bats` | the code each outcome exits on: released, previewed, nothing to release, refused, error |
+| `tests/summary.bats` | `--summary`: the keys, their values on each outcome, and the runs that write no file at all |
 
 The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.
 
