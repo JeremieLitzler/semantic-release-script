@@ -1,4 +1,4 @@
-# semantic-release-script-testing
+# semantic-release-script
 
 A bash implementation of semantic release, so a release does not depend on a
 tree of npm packages. It reads the conventional commits, decides the version,
