@@ -10,6 +10,9 @@
 # to the remote before you say so. A --dry-run reaches no remote, so it runs
 # straight through, with no gate to answer.
 #
+# A release the previous run left half published — its tag on origin, its
+# GitHub release missing — is resumed at step 4 rather than recomputed.
+#
 # Requirements: git, bash >= 4, and the GitHub CLI (`gh`) already logged in.
 
 set -euo pipefail
@@ -138,6 +141,11 @@ Steps (a human gate sits before each one, unless --dry-run):
   3. create and push the tag
   4. create the GitHub release
 
+A version tag the target already carries, that origin holds and GitHub has no
+release for, is a release left half published by a run that died between steps
+3 and 4. It is resumed instead: the version is read off the tag, the notes are
+rebuilt over its range, and step 3 has nothing to create.
+
 Exit codes:
   0  released, or previewed with --dry-run or --local
   1  error: bad usage, a gate with no terminal, a missing tool, a failed push
@@ -228,10 +236,20 @@ refusal() {
   esac
 }
 
-# nearest_version_tag <ref> -> the nearest version tag reachable from <ref>, or
-# nothing when the ref reaches none.
+# nearest_version_tag <ref> [excluded tag] -> the nearest version tag reachable
+# from <ref>, or nothing when the ref reaches none.
+#
+# The excluded tag is left out of the search. That is how the tag of a half-
+# published release finds the one behind it: excluding it reproduces exactly
+# what `git describe` answered for the run that pushed it, when the tag did not
+# exist yet.
 nearest_version_tag() {
-  git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$1" 2>/dev/null || true
+  local ref="$1" excluded="${2:-}"
+  if [[ -n $excluded ]]; then
+    git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" --exclude "$excluded" "$ref" 2>/dev/null || true
+  else
+    git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$ref" 2>/dev/null || true
+  fi
 }
 
 # resolve_baseline <target ref> [since ref] -> BASELINE_REF and CURRENT_VERSION.
@@ -343,6 +361,48 @@ verify_trunk_contains() {
   refusal off-trunk "$TRUNK" "$where"
 }
 
+# ----------------------------------------------------- half-published release
+#
+# Step 3 pushes the tag and step 4 creates the GitHub release, so a run that
+# dies between the two leaves a half-published release behind: the version tag
+# is on origin, and nothing carries its notes.
+#
+# Re-running used to dead-end there. The tag sits on the very commit the run
+# was releasing, so the next run resolves it as its own baseline and finds an
+# empty range — "nothing to release" over a release that never happened.
+# Consumers worked around it in YAML, by deleting the tag from origin so the
+# next run could re-cut it.
+#
+# So the script looks for one on the target before it computes anything, and
+# resumes at step 4: the version is read off the tag, the notes are rebuilt
+# over the range the tag was cut on, and nothing is tagged or pushed.
+
+# half_published_tag <target ref> -> the version tag on <target> that origin
+# holds and GitHub carries no release for, or nothing.
+half_published_tag() {
+  local target="$1" tag=""
+
+  # The highest version tag on the target's commit. release.sh writes one tag
+  # per release, so more than one there is somebody else's doing; the highest
+  # is the release the repository is furthest along.
+  tag=$(git tag --list "$VERSION_TAG_GLOB" --points-at "${target}^{commit}" --sort=v:refname | tail -n 1)
+  [[ -n $tag ]] || return 0
+
+  # origin's tag, never the machine's. A tag --local wrote, or one made by
+  # hand, has no release for the plain reason that it was never pushed: what it
+  # is waiting for is step 3, not step 4.
+  git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1 || return 0
+
+  # `gh release view` exits non-zero both for a tag with no release and for gh
+  # failing outright, and no code tells the two apart. Read the way
+  # verify_trunk_contains reads its fetch: gh answered `auth status` and `repo
+  # view` in the preflight a moment ago, so what fails here is the lookup
+  # finding nothing.
+  ! gh release view "$tag" --repo "$REPO" >/dev/null 2>&1 || return 0
+
+  printf '%s' "$tag"
+}
+
 # ------------------------------------------------------------------ preflight
 
 (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (running ${BASH_VERSION})"
@@ -382,14 +442,33 @@ if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
   fi
 fi
 
-# ------------------------------------------------------- step 1: next version
+# ------------------------------------------------------------ step 1: version
 
 resolve_baseline "$TO_REF" "$SINCE_REF"
-# Before the version rather than before the tag, like the refusals above it: a
-# run that will refuse should refuse before it prints a version nothing can act
-# on. Under --dry-run it warns instead and the version follows, which is the
-# whole point of previewing a ref the trunk has yet to take.
-verify_trunk_contains "$TO_REF"
+
+# A half-published release on the target ends the version computation before it
+# starts: the version is the tag's, and the run has only step 4 left to do.
+RESUME_TAG=$(half_published_tag "$TO_REF")
+RESUMING=false
+
+if [[ -n $RESUME_TAG ]]; then
+  RESUMING=true
+  note "${RESUME_TAG} is on origin with no GitHub release: resuming it at step 4 rather than computing a new version."
+  # The baseline the run that pushed the tag resolved, so the notes come back
+  # the same: the nearest version tag behind this one. --since still wins over
+  # it, the way it does for a release being cut.
+  [[ -n $SINCE_REF ]] || BASELINE_REF=$(nearest_version_tag "$RESUME_TAG" "$RESUME_TAG")
+else
+  # Before the version rather than before the tag, like the refusals above it: a
+  # run that will refuse should refuse before it prints a version nothing can act
+  # on. Under --dry-run it warns instead and the version follows, which is the
+  # whole point of previewing a ref the trunk has yet to take.
+  #
+  # A resume gets past it, and for the reason --dry-run does: the guard is over
+  # where a tag lands, and a resume writes no tag to strand. The one it
+  # publishes is on origin already, put there by a run this guard let through.
+  verify_trunk_contains "$TO_REF"
+fi
 
 if [[ -n $BASELINE_REF ]]; then
   RANGE="${BASELINE_REF}..${TO_REF}"
@@ -438,29 +517,49 @@ for hash in "${COMMITS[@]}"; do
   C_CATEGORY+=("$(classify "$subject" "$body")")
 done
 
-LEVEL="patch"
-for category in "${C_CATEGORY[@]}"; do
-  case "$category" in
-    breaking) LEVEL="major"; break ;;
-    feature)  LEVEL="minor" ;;
+if [[ $RESUMING == true ]]; then
+  NEW_TAG="$RESUME_TAG"
+  NEW_VERSION="${NEW_TAG#v}"
+  # Nothing left for it to force: the version was decided by the run that wrote
+  # the tag. Said out loud rather than dropped, since a caller passing it wants
+  # a version this run is not the one to choose.
+  [[ -z $FORCE_LEVEL ]] \
+    || warn "--level is ignored on a resume: ${NEW_TAG} already carries the version"
+else
+  LEVEL="patch"
+  for category in "${C_CATEGORY[@]}"; do
+    case "$category" in
+      breaking) LEVEL="major"; break ;;
+      feature)  LEVEL="minor" ;;
+    esac
+  done
+  [[ -n $FORCE_LEVEL ]] && LEVEL="$FORCE_LEVEL"
+
+  IFS='.' read -r MAJOR MINOR PATCH <<<"$CURRENT_VERSION"
+  case "$LEVEL" in
+    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+    patch) PATCH=$((PATCH + 1)) ;;
   esac
-done
-[[ -n $FORCE_LEVEL ]] && LEVEL="$FORCE_LEVEL"
+  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+  NEW_TAG="v${NEW_VERSION}"
+fi
 
-IFS='.' read -r MAJOR MINOR PATCH <<<"$CURRENT_VERSION"
-case "$LEVEL" in
-  major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-  minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-  patch) PATCH=$((PATCH + 1)) ;;
-esac
-NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-NEW_TAG="v${NEW_VERSION}"
-
-step "Step 1 — evaluate the new version"
+if [[ $RESUMING == true ]]; then
+  step "Step 1 — resume the half-published ${NEW_TAG}"
+else
+  step "Step 1 — evaluate the new version"
+fi
 info "Repository      : ${REPO}"
 info "Branch          : ${CURRENT_BRANCH}"
 info "Commit range    : ${RANGE}${BASELINE_REF:+ (last tag: ${BASELINE_REF})}"
-[[ $TO_REF == "HEAD" ]] || info "Target ref      : ${TO_REF} (tag will be created there, not on HEAD)"
+if [[ $TO_REF != "HEAD" ]]; then
+  if [[ $RESUMING == true ]]; then
+    info "Target ref      : ${TO_REF} (the tag is there, not on HEAD)"
+  else
+    info "Target ref      : ${TO_REF} (tag will be created there, not on HEAD)"
+  fi
+fi
 info "Commits scanned : ${#COMMITS[@]}"
 info ""
 for i in "${!C_HASH[@]}"; do
@@ -468,14 +567,19 @@ for i in "${!C_HASH[@]}"; do
     "$YELLOW" "${C_CATEGORY[$i]}" "$RESET" "${C_SHORT[$i]}" "$DIM" "${C_SUBJECT[$i]}" "$RESET"
 done
 info ""
-info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with --level)}"
-info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
+if [[ $RESUMING == true ]]; then
+  info "Version         : ${BOLD}${GREEN}${NEW_VERSION}${RESET} (read off ${NEW_TAG}, which origin already holds)"
+else
+  info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with --level)}"
+  info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
 
-# The only guard today against a non-monotonic version, and a narrow one: it
-# catches the next version colliding with a tag that already exists, not a
-# baseline older than the latest release in general.
-if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
-  refusal tag-taken "$NEW_TAG"
+  # The only guard today against a non-monotonic version, and a narrow one: it
+  # catches the next version colliding with a tag that already exists, not a
+  # baseline older than the latest release in general. A tag on the target with
+  # no release never reaches it: that one is a resume, decided above.
+  if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
+    refusal tag-taken "$NEW_TAG"
+  fi
 fi
 
 gate "Continue to step 2 and build the release notes for ${NEW_TAG}?"
@@ -622,27 +726,35 @@ if [[ -n $CHANGELOG_OUT ]]; then
   note "Changelog updated: ${CHANGELOG_OUT}"
 fi
 
-gate "Continue to step 3 and create the tag ${NEW_TAG}?"
-
 # --------------------------------------------------------- step 3: tag & push
 
-step "Step 3 — create and push ${NEW_TAG}"
-
-if [[ $DRY_RUN == true ]]; then
-  note "[dry-run] git tag -a ${NEW_TAG} -m ${NEW_TAG} ${TO_REF}"
-  note "[dry-run] git push origin ${NEW_TAG}"
-elif [[ $LOCAL_ONLY == true ]]; then
-  git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
-  info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
-  note "[local] not pushed to origin"
+if [[ $RESUMING == true ]]; then
+  # No gate in front of it. A gate holds back a step that writes something, and
+  # this one writes nothing: the tag it would have created is on origin
+  # already, which is what made this run a resume.
+  step "Step 3 — ${NEW_TAG} is already on origin"
+  note "[resume] the tag was pushed before the release that never happened; it is not recreated"
 else
-  git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
-  info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
-  if ! git push origin "$NEW_TAG"; then
-    git tag -d "$NEW_TAG" >/dev/null
-    die "pushing ${NEW_TAG} failed — the local tag has been deleted, nothing was released"
+  gate "Continue to step 3 and create the tag ${NEW_TAG}?"
+
+  step "Step 3 — create and push ${NEW_TAG}"
+
+  if [[ $DRY_RUN == true ]]; then
+    note "[dry-run] git tag -a ${NEW_TAG} -m ${NEW_TAG} ${TO_REF}"
+    note "[dry-run] git push origin ${NEW_TAG}"
+  elif [[ $LOCAL_ONLY == true ]]; then
+    git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
+    info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
+    note "[local] not pushed to origin"
+  else
+    git tag -a "$NEW_TAG" -m "$NEW_TAG" "$TO_REF"
+    info "Tag ${NEW_TAG} created on $(git rev-parse --short "$TO_REF")."
+    if ! git push origin "$NEW_TAG"; then
+      git tag -d "$NEW_TAG" >/dev/null
+      die "pushing ${NEW_TAG} failed — the local tag has been deleted, nothing was released"
+    fi
+    info "Tag ${NEW_TAG} pushed to origin."
   fi
-  info "Tag ${NEW_TAG} pushed to origin."
 fi
 
 gate "Continue to step 4 and publish the GitHub release ${NEW_TAG}?"
@@ -653,10 +765,18 @@ step "Step 4 — publish the release ${NEW_TAG}"
 
 if [[ $DRY_RUN == true ]]; then
   note "[dry-run] gh release create ${NEW_TAG} --title ${NEW_TAG} --notes-file <notes>"
-  note "[dry-run] no tag was pushed, so no release was created"
+  if [[ $RESUMING == true ]]; then
+    note "[dry-run] ${NEW_TAG} is already on origin: a real run would publish its release"
+  else
+    note "[dry-run] no tag was pushed, so no release was created"
+  fi
 elif [[ $LOCAL_ONLY == true ]]; then
   note "[local] gh release create ${NEW_TAG} --title ${NEW_TAG} --notes-file <notes>"
-  note "[local] the tag stays on this machine, so no release was created"
+  if [[ $RESUMING == true ]]; then
+    note "[local] ${NEW_TAG} is on origin, but --local creates no release"
+  else
+    note "[local] the tag stays on this machine, so no release was created"
+  fi
 else
   gh release create "$NEW_TAG" \
     --repo "$REPO" \

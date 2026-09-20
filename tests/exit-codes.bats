@@ -42,6 +42,9 @@ setup() {
 @test "nothing to release exits 2, and still says so" {
   tag_version v1.2.3
   push_fixture
+  # The last release went all the way through. A tag with no release behind it
+  # is a resume, which ends on 0.
+  given_release v1.2.3
 
   run_release --dry-run
 
@@ -55,6 +58,9 @@ setup() {
   commit_change "fix: keep the cart total in sync"
   tag_version v1.0.1
   push_fixture
+  # v1.0.1 is a finished release: a tag with no release behind it would be
+  # resumed instead of refused.
+  given_release v1.0.1
 
   run_release --dry-run --since v1.0.0 --to v1.0.1
 

@@ -2,7 +2,7 @@
 #
 # gh — a fake GitHub CLI for the fixture suite, put first on PATH.
 #
-# It answers the four kinds of call release.sh makes, and fails loudly on any
+# It answers the five kinds of call release.sh makes, and fails loudly on any
 # other, so a new call in release.sh can't slip through unnoticed. It stays
 # faithful where fidelity catches bugs:
 #
@@ -10,7 +10,9 @@
 #     expression over it, so a broken expression fails the tests;
 #   * an issue number no test declared answers like a real 404: the error
 #     payload on stdout, a message on stderr, exit 1;
-#   * `release create --verify-tag` refuses a tag the bare `origin` lacks.
+#   * `release create --verify-tag` refuses a tag the bare `origin` lacks;
+#   * `release view` exits 1 for a tag no release was created for, which is how
+#     release.sh spots a half-published release.
 #
 # Every call is logged, one line per call, to $FAKE_GH_STATE/calls.log, and the
 # notes of each release are copied to $FAKE_GH_STATE/releases/<tag>.md.
@@ -109,10 +111,32 @@ release_create() {
   printf 'https://github.com/%s/releases/tag/%s\n' "$repo" "$tag"
 }
 
+# A release nobody created answers the way the real gh does: a line on stderr
+# and exit 1, with nothing on stdout to mistake for an answer.
+release_view() {
+  local tag="$1"; shift
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="${2:?--repo needs a value}"; shift 2 ;;
+      *)      unsupported release view "$tag" "$@" ;;
+    esac
+  done
+  [[ -n $repo ]] || unsupported release view "$tag" "(without --repo)"
+
+  if [[ ! -e $STATE/releases/${tag}.md ]]; then
+    printf 'release not found\n' >&2
+    exit 1
+  fi
+  printf 'title:\t%s\ntag:\t%s\n--\n' "$tag" "$tag"
+  cat "$STATE/releases/${tag}.md"
+}
+
 case "${1:-} ${2:-}" in
   "auth status")    auth_status ;;
   "repo view")      shift 2; repo_view "$@" ;;
   "release create") shift 2; release_create "$@" ;;
+  "release view")   shift 2; release_view "$@" ;;
   api\ *)           shift; api "$@" ;;
   *)                unsupported "$@" ;;
 esac

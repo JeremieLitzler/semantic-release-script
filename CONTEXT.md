@@ -14,6 +14,14 @@ _Avoid_: release tag, semver tag
 A version tag together with the GitHub release that carries its notes.
 _Avoid_: publish, version (when the tag plus notes is meant)
 
+**Half-published release**:
+A version tag on `origin` that no GitHub release carries the notes for, left by a run that died between pushing the tag and creating the release. The next run detects one on the target and resumes it at step 4 rather than computing a new version.
+_Avoid_: orphan tag (that is a stranded tag), partial release, failed release
+
+**Resume**:
+Finishing a half-published release: the version is read off the tag, the notes are rebuilt over the range the tag was cut on, and only the GitHub release is created. It writes no tag, so the guard over where a tag lands has nothing to hold back.
+_Avoid_: retry, recover, re-run (a re-run is any second run)
+
 **Baseline**:
 The version tag the next version is computed from: the nearest version tag reachable from the commit being released, or `0.0.0` when there is none.
 _Avoid_: last tag, current version, previous release

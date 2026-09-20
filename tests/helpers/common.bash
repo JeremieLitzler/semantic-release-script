@@ -45,6 +45,13 @@ push_fixture() {
   git push -q origin main --tags
 }
 
+# push_tag_fixture <tag> — push one tag to origin, and nothing else. What a run
+# that died between pushing the tag and creating the release left behind, and
+# the way to put a tag on origin without moving the trunk there with it.
+push_tag_fixture() {
+  git push -q origin "refs/tags/$1"
+}
+
 # push_trunk_fixture <name> — origin holds <name> at the current commit.
 # push_fixture only ever pushes `main`, and the trunk is read from origin, so a
 # test whose trunk is a branch of another name has to put it there before
@@ -127,6 +134,15 @@ given_reference_issues() {
       given_issue "${!number}" "${!title}"
     fi
   done
+}
+
+# given_release <tag> — GitHub carries a release for <tag>, as a run that
+# reached step 4 would have left it. Without one the tag is half published, and
+# release.sh resumes it instead of computing a new version — so a test whose
+# target carries a version tag has to say which of the two states it is in.
+given_release() {
+  mkdir -p "${FAKE_GH_STATE}/releases"
+  printf 'notes for %s\n' "$1" >"${FAKE_GH_STATE}/releases/$1.md"
 }
 
 given_gh_logged_out() {

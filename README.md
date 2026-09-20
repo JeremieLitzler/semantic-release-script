@@ -112,6 +112,42 @@ fatal: couldn't find remote ref develop
 x cannot fetch the trunk 'develop' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>
 ```
 
+### Resuming a half-published release
+
+Step 3 pushes the tag and step 4 creates the GitHub release. A run that dies between the two — a cancelled job, a runner that went away, a `gh` call that failed — leaves a **half-published release**: the version tag is on `origin`, and nothing carries its notes.
+
+Re-running used to dead-end there. The tag sits on the very commit the run was releasing, so the next run resolves it as its own baseline, finds an empty range, and reports code `2`, "nothing to release" — over a release that never happened. The release never appears on its own, and consumers worked around it in YAML, by deleting the tag from `origin` so the next run could re-cut it.
+
+So the script looks for one on the target before it computes anything — a version tag on the target's commit, that `origin` holds, and that GitHub carries no release for — and resumes it:
+
+```
+v1.1.0 is on origin with no GitHub release: resuming it at step 4 rather than computing a new version.
+
+== Step 1 — resume the half-published v1.1.0 ==
+...
+Version         : 1.1.0 (read off v1.1.0, which origin already holds)
+```
+
+The version is read off the tag, not computed, so `--level` has nothing left to force and says so. The notes are rebuilt over the range the tag was cut on — the nearest version tag behind it, or `--since` when you name one — so they come back the same as the run that died would have published. Step 3 creates nothing, and has no gate in front of it: a gate holds back a step that writes, and the only write left is step 4's release, which keeps its own.
+
+Three states look alike from the outside, and only the middle one resumes:
+
+| The tag on the target | What happens |
+| --- | --- |
+| On `origin`, with its GitHub release | The release is finished: the range behind it is empty, so code `2`, nothing to release. |
+| On `origin`, with no GitHub release | Half published: resumed at step 4. |
+| On this machine only | Never pushed, so what it is waiting for is step 3, not step 4. Left alone — push it, or delete it and let the next run re-cut it. |
+
+The containment guard is the one thing a resume gets past, for the reason `--dry-run` does: that guard is about where a tag **lands**, and a resume writes no tag to strand. The one it publishes is on `origin` already, put there by a run the guard let through. The shallow-clone and stale-tag refusals still apply, since both are about reading the wrong range.
+
+A resume is scoped to the **target**. Commits pushed on top of a half-published tag move `HEAD` past it, and a plain re-run then tags and releases the next version, leaving the older tag without a release for good. `--to <the tag>` resumes it.
+
+`--dry-run` previews the resume and publishes nothing:
+
+```
+[dry-run] v1.1.0 is already on origin: a real run would publish its release
+```
+
 ### The version
 
 The commits since the last `v*.*.*` tag decide the bump. Merge commits are
@@ -192,7 +228,7 @@ tests/libs/bats-core/bin/bats tests/ # the fixture suite; the live suite shows a
 
 ### The fixture suite
 
-Each test builds a throwaway repository in a temp dir, with a bare repository as its `origin`, and runs `release.sh --yes` with a fake `gh` first on `PATH` (`tests/helpers/fake-gh/gh`). The fake runs the real `--jq` expressions over GitHub-shaped JSON, answers an issue number no test declared like a 404, checks `--verify-tag` against the bare `origin`, and logs every call. Tests declare the GitHub state they need with `given_issue`, `given_pull_request` and `given_default_branch`.
+Each test builds a throwaway repository in a temp dir, with a bare repository as its `origin`, and runs `release.sh --yes` with a fake `gh` first on `PATH` (`tests/helpers/fake-gh/gh`). The fake runs the real `--jq` expressions over GitHub-shaped JSON, answers an issue number no test declared like a 404, checks `--verify-tag` against the bare `origin`, exits `1` from `release view` for a tag no release was created for, and logs every call. Tests declare the GitHub state they need with `given_issue`, `given_pull_request`, `given_release` and `given_default_branch`.
 
 | File | Covers |
 | --- | --- |
@@ -200,6 +236,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
+| `tests/resume.bats` | resuming a half-published release: what is detected, what is left alone, what a resume writes |
 | `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, the trunk containment guard, bad arguments, the preflight checks |
 | `tests/exit-codes.bats` | the code each outcome exits on: released, previewed, nothing to release, refused, error |
 
