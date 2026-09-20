@@ -11,7 +11,7 @@ logged in (`gh auth login`).
 
 ```bash
 ./scripts/release/release.sh --dry-run   # see the version and the notes, change nothing
-./scripts/release/release.sh             # the real thing, one confirmation per step
+./scripts/release/release.sh             # the real thing, one gate per step
 ```
 
 A real run stops at a human gate before each step. A dry run reaches no remote — no tag pushed, no release created — so its gates guard nothing: it runs straight through, and needs no terminal to answer on. That is what lets a CI job preview a release with `--dry-run` alone. The cost is local: a dry run no longer pauses between its steps.
