@@ -44,6 +44,7 @@ TO_REF=""
 FORCE_LEVEL=""
 NOTES_OUT=""
 CHANGELOG_OUT=""
+SUMMARY_OUT=""
 TRUNK=""
 
 # ---------------------------------------------------------------- presentation
@@ -107,8 +108,10 @@ gate() {
   read -r answer < /dev/tty || true
   case "$answer" in
     [yY] | [yY][eE][sS]) return 0 ;;
-    # A human said no. Nothing was released, and nothing went wrong.
-    *) info "Stopped before: $prompt"; exit "$EXIT_OK" ;;
+    # A human said no. Nothing was released, and nothing went wrong. The
+    # version was decided all the same, so the summary is written before the
+    # run ends: a consumer reading it learns what the run declined.
+    *) write_summary no; info "Stopped before: $prompt"; exit "$EXIT_OK" ;;
   esac
 }
 
@@ -133,6 +136,8 @@ Options:
       --level <level>   Force the bump: major | minor | patch.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
+      --summary <file>  Write what the run decided to <file>, as key=value
+                         lines: tag, version, bump, baseline, released.
   -h, --help            Show this help.
 
 Steps (a human gate sits before each one, unless --dry-run):
@@ -176,6 +181,7 @@ while [[ $# -gt 0 ]]; do
     --level)        FORCE_LEVEL="${2:-}"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; shift 2 ;;
+    --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; shift 2 ;;
     -h | --help)    usage; exit "$EXIT_OK" ;;
     *)              usage >&2; die "unknown option: $1" ;;
   esac
@@ -185,6 +191,48 @@ case "$FORCE_LEVEL" in
   "" | major | minor | patch) ;;
   *) die "--level must be one of: major, minor, patch" ;;
 esac
+
+# ------------------------------------------------------------ release summary
+#
+# The exit code says how a run ended; --summary says what it decided, so a
+# consumer's CI reads the version off a file instead of grepping output meant
+# for a human.
+#
+# Bare `key=value` lines, unquoted, one per line: every value is a tag, a
+# version, a bump name or yes/no, so the file reads as it stands, sourced into
+# a shell or appended to $GITHUB_OUTPUT. Appended, never pointed at: the file
+# is written whole, and GITHUB_OUTPUT holds a step's other outputs too. Adding
+# a key means documenting it in usage() and in the README, and pinning it in
+# tests/summary.bats.
+#
+# Every run that got as far as deciding a version writes one — a release, a
+# preview, a resume, a gate a human declined — and no other run does. Nothing
+# to release, a refusal and an error each decided no version, so they leave the
+# path as they found it, a file a previous run wrote there included: the code
+# is what tells a consumer whether the file answers for this run.
+
+# write_summary <yes|no> — the release this run decided, or nothing when
+# --summary was not asked for or no version was reached.
+write_summary() {
+  [[ -n $SUMMARY_OUT && -n ${NEW_TAG:-} ]] || return 0
+
+  local bump="${LEVEL:-}"
+  # A resume publishes the version the run that pushed the tag decided, so this
+  # run bumped nothing. Named rather than left empty, so a consumer matching on
+  # major|minor|patch reads a value it cannot mistake for one of them.
+  [[ ${RESUMING:-false} == false ]] || bump="none"
+
+  mkdir -p "$(dirname "$SUMMARY_OUT")"
+  # Truncated, never appended to: the file is this run's answer, whole.
+  cat >"$SUMMARY_OUT" <<EOF
+tag=${NEW_TAG}
+version=${NEW_VERSION}
+bump=${bump}
+baseline=${CURRENT_VERSION}
+released=$1
+EOF
+  note "Summary written to ${SUMMARY_OUT}"
+}
 
 # ------------------------------------------------------------------- baseline
 #
@@ -253,6 +301,28 @@ version_tag_behind() {
   git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" --exclude "$1" "$1" 2>/dev/null || true
 }
 
+# resolve_current_version -> CURRENT_VERSION, the version BASELINE_REF carries.
+#
+# Its own function because BASELINE_REF is set in two places: resolve_baseline
+# reads it from --since or from the tag the target reaches, and a resume then
+# moves it behind the tag being published, where the version has to follow it.
+#
+# The ref is a version tag on an ordinary release, but --since accepts any ref
+# — a commit hash when replaying history — so the version is the ref's own when
+# it is a version tag, the nearest version tag behind it otherwise, and 0.0.0
+# when it reaches none at all.
+resolve_current_version() {
+  local version_tag="$BASELINE_REF"
+  if [[ -n $BASELINE_REF && ! $BASELINE_REF =~ $VERSION_TAG_RE ]]; then
+    version_tag=$(nearest_version_tag "$BASELINE_REF")
+  fi
+
+  CURRENT_VERSION="0.0.0"
+  if [[ $version_tag =~ $VERSION_TAG_RE ]]; then
+    CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+  fi
+}
+
 # resolve_baseline <target ref> [since ref] -> BASELINE_REF and CURRENT_VERSION.
 #
 # Without --since the baseline is the nearest version tag the target ref
@@ -293,15 +363,7 @@ resolve_baseline() {
     BASELINE_REF=$(nearest_version_tag "$target")
   fi
 
-  local version_tag="$BASELINE_REF"
-  if [[ -n $BASELINE_REF && ! $BASELINE_REF =~ $VERSION_TAG_RE ]]; then
-    version_tag=$(nearest_version_tag "$BASELINE_REF")
-  fi
-
-  CURRENT_VERSION="0.0.0"
-  if [[ $version_tag =~ $VERSION_TAG_RE ]]; then
-    CURRENT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-  fi
+  resolve_current_version
 }
 
 # verify_trunk_contains <target ref> — the trunk reaches <target>, or the
@@ -494,6 +556,10 @@ if [[ -n $RESUME_TAG ]]; then
   # the same. --since still wins over it, the way it does for a release being
   # cut.
   [[ -n $SINCE_REF ]] || BASELINE_REF=$(version_tag_behind "$RESUME_TAG")
+  # And the version that baseline carries: the one resolve_baseline read is
+  # off the tag being resumed, which is the release being published, not the
+  # release before it.
+  resolve_current_version
 fi
 
 if [[ -n $BASELINE_REF ]]; then
@@ -811,4 +877,13 @@ else
     --verify-tag
   printf '\n%s%sReleased %s%s\n' "$BOLD" "$GREEN" "$NEW_TAG" "$RESET"
   info "${REPO_URL}/releases/tag/${NEW_TAG}"
+fi
+
+# Last, once nothing is left that could change the answer: a consumer that
+# finds the file can read every line of it as final. A gh that failed above
+# took the run down with it, and wrote none.
+if [[ $DRY_RUN == true || $LOCAL_ONLY == true ]]; then
+  write_summary no
+else
+  write_summary yes
 fi

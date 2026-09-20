@@ -72,7 +72,7 @@ setup() {
 
 @test "the options taking a value fail without one" {
   local option
-  for option in --since --to --notes --changelog --trunk; do
+  for option in --since --to --notes --changelog --summary --trunk; do
     run_release "$option"
     assert_failure
     assert_output --partial "${option} needs a"
