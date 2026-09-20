@@ -16,6 +16,8 @@ logged in (`gh auth login`).
 
 A real run stops at a human gate before each step. A dry run reaches no remote — no tag pushed, no release created — so its gates guard nothing: it runs straight through, and needs no terminal to answer on. That is what lets a CI job preview a release with `--dry-run` alone. The cost is local: a dry run no longer pauses between its steps.
 
+A real run needs a terminal to answer on, or `--yes` in place of one. A runner has neither: there `/dev/tty` is still a device node, but nothing opens it, so the run stops at the first gate and exits `1` telling you to pass `--yes` — rather than reading the answer it could not get as a decline and going green having released nothing.
+
 It is the remote a dry run leaves alone, not your disk. `--notes` and `--changelog` write their file under `--dry-run` exactly as they do on a real run, and now with no gate in front of them. `--local` still gates, because it writes a tag to your machine.
 
 | Option | Effect |

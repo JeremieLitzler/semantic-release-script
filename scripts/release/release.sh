@@ -86,11 +86,21 @@ gate() {
     note "-> $prompt (skipped: --dry-run reaches no remote)"
     return 0
   fi
-  if [[ ! -t 0 && ! -e /dev/tty ]]; then
+  # A terminal to read the answer from. /dev/tty can be there and still refuse
+  # to open — a CI runner holds no controlling terminal — so opening it is the
+  # only test worth making, and it has to happen before the read rather than be
+  # inferred from it: a read that fails leaves the same empty answer as a human
+  # declining, and a job that forgot --yes would go green having released
+  # nothing. The open is a subshell's, so the script's own descriptors are left
+  # as its caller handed them over.
+  if ! ( exec </dev/tty ) 2>/dev/null; then
     die "no terminal available to confirm '$prompt' — rerun with --yes"
   fi
   local answer=""
   printf '%s%s%s [y/N] ' "$BOLD" "$prompt" "$RESET" >&2
+  # The terminal opened a moment ago, so a read that fails here is end-of-input
+  # on it: a human who closed it with Ctrl-D, which the empty answer below
+  # reads as a decline.
   read -r answer < /dev/tty || true
   case "$answer" in
     [yY] | [yY][eE][sS]) return 0 ;;
@@ -130,7 +140,7 @@ Steps (a human gate sits before each one, unless --dry-run):
 
 Exit codes:
   0  released, or previewed with --dry-run or --local
-  1  error: bad usage, a missing tool, a failed push
+  1  error: bad usage, a gate with no terminal, a missing tool, a failed push
   2  nothing to release in the commit range
   3  refused by a guard
   *  anything else is git or gh failing unguarded (128, say): treat it as 1
