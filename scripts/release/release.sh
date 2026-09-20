@@ -197,18 +197,22 @@ verify_ref() {
   git rev-parse --verify --quiet "$1" >/dev/null || die "unknown ref: $1"
 }
 
-# baseline_refusal <name> [detail] [extra] — refuse the release on the named
+# baseline_refusal <name> [detail] [target] — refuse the release on the named
 # baseline refusal. The name picks the wording, so a refusal raised from more
 # than one place reads the same in each; every one of them is the repository's
 # state ruling the release out, so every one of them exits EXIT_REFUSED. An
 # unrecognised name would leave `case` returning 0 and the refusal silent,
 # hence the last arm.
+#
+# detail is whatever that refusal is about, and the name says which: the remote
+# for stale-tags, the trunk for off-trunk, the tag for tag-taken. target is the
+# ref that would have been tagged, for the refusals naming both ends.
 baseline_refusal() {
-  local detail="${2:-}" extra="${3:-}"
+  local detail="${2:-}" target="${3:-}"
   case "$1" in
     shallow)    stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     stale-tags) stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
-    off-trunk)  stop "$EXIT_REFUSED" "origin/${detail} does not contain ${extra}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
+    off-trunk)  stop "$EXIT_REFUSED" "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
     *)          stop "$EXIT_REFUSED" "baseline refused: $1" ;;
   esac
