@@ -29,7 +29,7 @@ SCRIPT_NAME=$(basename "$0")
 # an exit 2, which is the code for nothing to release. A reassignment would
 # turn a broken run into the most benign outcome there is.
 readonly EXIT_OK=0                 # released, or previewed with --dry-run/--local
-readonly EXIT_ERROR=1              # bad usage, a missing tool, a failed push
+readonly EXIT_ERROR=1              # bad usage, a gate with no terminal, a missing tool, a failed push
 readonly EXIT_NOTHING_TO_RELEASE=2 # no commit in the range
 readonly EXIT_REFUSED=3            # a guard refused the release
 
