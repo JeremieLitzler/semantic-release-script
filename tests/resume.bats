@@ -3,7 +3,7 @@
 # Resuming a half-published release: a version tag the target carries, origin
 # holds, and GitHub has no release for. The run that left it there died between
 # pushing the tag and creating the release, and a re-run used to dead-end on
-# the empty range the tag makes of its own commit.
+# the range with no commit in it that the tag makes of its own commit.
 
 load helpers/common
 
@@ -158,10 +158,11 @@ half_publish() {
   assert_line "Released v1.1.0"
 }
 
-# The trunk containment guard stops a tag being written where the trunk cannot
-# reach it. A resume writes none — the tag is already on origin — so the guard
-# has nothing left to prevent, the same reason --dry-run gets past it.
-@test "the trunk containment guard has nothing to hold back on a resume" {
+# The guards weigh on a resume as they do on a release being cut, and the
+# containment one runs before the run is recognised as a resume at all. The tag
+# is stranded either way; publishing its notes would only add to what has to be
+# unpicked once the trunk is put right.
+@test "a half-published tag the trunk cannot reach is refused, not resumed" {
   # origin/main stops at v1.0.0, so HEAD sits on a commit the trunk cannot
   # reach — what a run cutting a new tag there would be refused over.
   git push -q origin "v1.0.0^{commit}:refs/heads/main"
@@ -171,7 +172,8 @@ half_publish() {
 
   run_release
 
-  assert_success
-  refute_output --partial "does not contain"
-  assert_line "Released v1.1.0"
+  assert_failure 3
+  assert_output --partial "origin/main does not contain HEAD"
+  refute_output --partial "resuming it at step 4"
+  assert_no_release_created
 }
