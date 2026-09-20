@@ -179,6 +179,10 @@ setup() {
 @test "a range with no commit in it is nothing to release" {
   tag_version v1.2.3
   push_fixture
+  # The trunk between two releases: the last one went all the way through, so
+  # its tag carries a GitHub release. Without one this would be a release left
+  # half published, which is resumed rather than reported as nothing to do.
+  given_release v1.2.3
 
   run_release --dry-run
 
@@ -253,6 +257,9 @@ setup() {
   commit_change "fix: keep the cart total in sync"
   tag_version v1.0.1
   push_fixture
+  # v1.0.1 is a finished release, not one left half published: the refusal is
+  # what answers a version already taken, not a resume.
+  given_release v1.0.1
 
   run_release --dry-run --since v1.0.0 --to v1.0.1
 
