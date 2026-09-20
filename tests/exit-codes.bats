@@ -62,6 +62,19 @@ setup() {
   assert_output --partial "tag v1.0.1 already exists locally"
 }
 
+@test "a gate with no terminal to read exits 1, not 0 for a release nobody declined" {
+  tag_version v1.0.0
+  commit_change "feat: export the orders as CSV"
+  push_fixture
+
+  run_release_no_terminal
+
+  assert_failure 1
+  assert_output --partial "no terminal available to confirm 'Continue to step 2 and build the release notes for v1.1.0?' — rerun with --yes"
+  refute_output --partial "Stopped before"
+  refute_remote_tag v1.1.0
+}
+
 @test "an unknown ref exits 1: a mistake in the command line, not a refusal" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"
@@ -86,7 +99,7 @@ setup() {
   assert_success
   assert_line "Exit codes:"
   assert_line "  0  released, or previewed with --dry-run or --local"
-  assert_line "  1  error: bad usage, a missing tool, a failed push"
+  assert_line "  1  error: bad usage, a gate with no terminal, a missing tool, a failed push"
   assert_line "  2  nothing to release in the commit range"
   assert_line "  3  refused by a guard"
 }

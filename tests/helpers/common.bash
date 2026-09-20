@@ -154,18 +154,40 @@ run_release() {
 }
 
 # run_release_unanswered [options...] — run release.sh with no --yes and
-# nothing on stdin, the shape a CI job runs it in.
+# nothing on stdin, for a run that should reach the end with no gate to answer.
 #
 # A gate that is reached still reads from /dev/tty, which a developer's own
 # terminal answers for even with stdin closed: the timeout is what turns a
 # gate that came back into a failing test rather than a suite that hangs. It
 # is a convenience, not a dependency — macOS ships no timeout, and there the
 # test runs unbounded, still failing on a runner with no terminal.
+#
+# A gate that should not be answered at all wants run_release_no_terminal.
 run_release_unanswered() {
   if command -v timeout >/dev/null 2>&1; then
     run timeout 30 bash "$RELEASE_SH" "$@" </dev/null
   else
     run bash "$RELEASE_SH" "$@" </dev/null
+  fi
+}
+
+# run_release_no_terminal [options...] — run release.sh with no --yes and no
+# controlling terminal, the shape a CI job runs it in: /dev/tty is still a
+# device node there, and opening it is what fails.
+#
+# setsid is what drops the terminal, and only Linux ships it — on macOS and on
+# Git Bash the test skips rather than hanging on a gate the developer's own
+# terminal would answer. CI runs on ubuntu, where the test runs for real.
+#
+# timeout runs inside the new session, not around it: outside, it would signal
+# setsid and leave the release.sh it fathered running in a session of its own.
+run_release_no_terminal() {
+  command -v setsid >/dev/null 2>&1 \
+    || skip "setsid is needed to drop the controlling terminal"
+  if command -v timeout >/dev/null 2>&1; then
+    run setsid --wait timeout 30 bash "$RELEASE_SH" "$@" </dev/null
+  else
+    run setsid --wait bash "$RELEASE_SH" "$@" </dev/null
   fi
 }
 
