@@ -171,10 +171,10 @@ esac
 #
 # The baseline is the version tag the next version is computed from.
 # resolve_baseline works it out in one place — the tags origin holds, the ref
-# the commit range starts at, the version that ref carries — and
-# baseline_refusal words the reasons it has to refuse a release, so a refusal
-# still to come is added there rather than inline. verify_ref sits beside it
-# for the one reason that is not a refusal: a ref the caller got wrong.
+# the commit range starts at, the version that ref carries — and refusal words
+# the reasons a release is refused, wherever they are found, so a refusal still
+# to come is added there rather than inline. verify_ref sits beside it for the
+# one reason that is not a refusal: a ref the caller got wrong.
 #
 # verify_trunk_contains guards the other end of the same drift: the baseline is
 # resolved from the trunk, so a tag written where the trunk cannot reach it is
@@ -197,24 +197,24 @@ verify_ref() {
   git rev-parse --verify --quiet "$1" >/dev/null || die "unknown ref: $1"
 }
 
-# baseline_refusal <name> [detail] [target] — refuse the release on the named
-# baseline refusal. The name picks the wording, so a refusal raised from more
-# than one place reads the same in each; every one of them is the repository's
-# state ruling the release out, so every one of them exits EXIT_REFUSED. An
-# unrecognised name would leave `case` returning 0 and the refusal silent,
-# hence the last arm.
+# refusal <name> [detail] [target] — refuse the release on the named refusal.
+# The name picks the wording, so a refusal raised from more than one place
+# reads the same in each; every one of them is the repository's state ruling
+# the release out, so every one of them exits EXIT_REFUSED. An unrecognised
+# name would leave `case` returning 0 and the refusal silent, hence the last
+# arm.
 #
 # detail is whatever that refusal is about, and the name says which: the remote
 # for stale-tags, the trunk for off-trunk, the tag for tag-taken. target is the
 # ref that would have been tagged, for the refusals naming both ends.
-baseline_refusal() {
+refusal() {
   local detail="${2:-}" target="${3:-}"
   case "$1" in
     shallow)    stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     stale-tags) stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  stop "$EXIT_REFUSED" "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
-    *)          stop "$EXIT_REFUSED" "baseline refused: $1" ;;
+    *)          stop "$EXIT_REFUSED" "refused: $1" ;;
   esac
 }
 
@@ -237,7 +237,7 @@ resolve_baseline() {
   # back, the commits they name stay behind the cut, and `git describe` reaches
   # none of them. Only `true` refuses, so a git too old to know the option
   # (< 2.15) leaves the release alone rather than claiming a shallow clone.
-  [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] || baseline_refusal shallow
+  [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] || refusal shallow
 
   note "Fetching tags from origin..."
   # The tags are what the baseline is read from, so a fetch that fails is not a
@@ -254,7 +254,7 @@ resolve_baseline() {
   local fetch_output=""
   if ! fetch_output=$(git fetch --tags origin 2>&1); then
     [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
-    baseline_refusal stale-tags origin
+    refusal stale-tags origin
   fi
 
   if [[ -n $since ]]; then
@@ -330,7 +330,7 @@ verify_trunk_contains() {
     warn "origin/${TRUNK} does not contain ${where}: a real run would refuse to tag there"
     return 0
   fi
-  baseline_refusal off-trunk "$TRUNK" "$where"
+  refusal off-trunk "$TRUNK" "$where"
 }
 
 # ------------------------------------------------------------------ preflight
@@ -465,7 +465,7 @@ info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RES
 # catches the next version colliding with a tag that already exists, not a
 # baseline older than the latest release in general.
 if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
-  baseline_refusal tag-taken "$NEW_TAG"
+  refusal tag-taken "$NEW_TAG"
 fi
 
 gate "Continue to step 2 and build the release notes for ${NEW_TAG}?"
