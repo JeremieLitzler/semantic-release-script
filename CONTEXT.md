@@ -50,6 +50,10 @@ _Avoid_: outdated tags, out-of-sync tags
 
 ### Outcomes
 
+**Gate**:
+A stop before a step that only the human can lift: the script asks, and goes no further until it is answered. Unlike a guard it weighs nothing — `--yes` answers every gate in advance, `--dry-run` asks none, and declining one ends the run at `0` with nothing released, what the steps before it wrote left standing.
+_Avoid_: prompt, confirmation, checkpoint
+
 **Guard**:
 A check that stops a release over the repository's state rather than over the command line — the computed tag already existing, for instance. It refuses, it does not fail. A guard over where the tag lands has nothing to stop under `--dry-run`, which writes no tag: there it warns instead of refusing.
 _Avoid_: validation, safety check
@@ -61,6 +65,10 @@ _Avoid_: rejection, abort, error (an error is the other outcome)
 **Nothing to release**:
 A commit range holding no commit, so there is no version to compute. The ordinary state of a trunk between releases, not a refusal and not an error: it exits `2` of its own.
 _Avoid_: empty range, no changes, up to date
+
+**Preview**:
+A run that writes nothing to the remote — no tag pushed, no release created — though it still reads from it: `--dry-run`, which writes nothing beyond the files `--notes` and `--changelog` name, or `--local`, which also writes the version tag to the machine. It exits `0`, as a release does.
+_Avoid_: trial run, simulation, test run
 
 ### Usage
 
