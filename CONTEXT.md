@@ -78,6 +78,10 @@ _Avoid_: empty range, no changes, up to date
 A run that writes nothing to the remote — no tag pushed, no release created — though it still reads from it: `--dry-run`, which writes nothing beyond the files `--notes` and `--changelog` name, or `--local`, which also writes the version tag to the machine. It exits `0`, as a release does.
 _Avoid_: trial run, simulation, test run
 
+**Release summary**:
+The `key=value` file `--summary` writes: the tag, the version, the bump, the baseline it was applied to, and whether a GitHub release was created. The exit code says how a run ended, the summary says what it decided, and only a run that got as far as deciding a version writes one.
+_Avoid_: output, report, manifest, metadata
+
 ### Usage
 
 **Replay**:
