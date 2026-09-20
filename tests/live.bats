@@ -107,6 +107,22 @@ reset_sandbox_main() {
   assert_output "tag ${tag} doesn't exist in the repo ${SANDBOX}, aborting due to --verify-tag flag"
 }
 
+# What tells a half-published release from a finished one. release.sh reads a
+# non-zero `release view` as GitHub holding no release for the tag, so the fake
+# has to fail the same way the real one does.
+@test "real gh fails release view for a tag with no release, like the fake" {
+  local tag="v0.0.0-release-view-probe"
+  local real_status=0 fake_status=0
+  gh release view "$tag" --repo "$SANDBOX" >/dev/null 2>&1 || real_status=$?
+  [[ $real_status -ne 0 ]] \
+    || fail "a release for ${tag} exists in ${SANDBOX}: delete it, the probe needs a tag with none"
+  export FAKE_GH_STATE="${BATS_TEST_TMPDIR}/gh"
+  "${TESTS_DIR}/helpers/fake-gh/gh" release view "$tag" --repo "$FIXTURE_REPO_NAME" >/dev/null 2>&1 \
+    || fake_status=$?
+
+  assert_equal "$fake_status" "$real_status"
+}
+
 @test "a full release in the sandbox carries the reference notes" {
   delete_sandbox_releases
   git clone -q "https://github.com/${SANDBOX}.git" "${BATS_TEST_TMPDIR}/sandbox"
