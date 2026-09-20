@@ -19,7 +19,7 @@ A version tag on `origin` that no GitHub release carries the notes for, left by 
 _Avoid_: orphan tag (that is a stranded tag), partial release, failed release
 
 **Resume**:
-Finishing a half-published release: the version is read off the tag, the notes are rebuilt over the range the tag was cut on, and only the GitHub release is created. It writes no tag, so the guard over where a tag lands has nothing to hold back.
+Finishing a half-published release: the version is read off the tag, the notes are rebuilt over the range the tag was cut on, and only the GitHub release is created. Every guard still weighs on it, and step 3 has nothing to write, so nothing gates it either.
 _Avoid_: retry, recover, re-run (a re-run is any second run)
 
 **Baseline**:

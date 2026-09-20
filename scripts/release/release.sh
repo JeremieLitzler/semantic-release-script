@@ -144,7 +144,8 @@ Steps (a human gate sits before each one, unless --dry-run):
 A version tag the target already carries, that origin holds and GitHub has no
 release for, is a release left half published by a run that died between steps
 3 and 4. It is resumed instead: the version is read off the tag, the notes are
-rebuilt over its range, and step 3 has nothing to create.
+rebuilt over its range, and step 3 has nothing to create — and so no gate in
+front of it, leaving step 4's as the only one to answer.
 
 Exit codes:
   0  released, or previewed with --dry-run or --local
@@ -236,20 +237,20 @@ refusal() {
   esac
 }
 
-# nearest_version_tag <ref> [excluded tag] -> the nearest version tag reachable
-# from <ref>, or nothing when the ref reaches none.
-#
-# The excluded tag is left out of the search. That is how the tag of a half-
-# published release finds the one behind it: excluding it reproduces exactly
-# what `git describe` answered for the run that pushed it, when the tag did not
-# exist yet.
+# nearest_version_tag <ref> -> the nearest version tag reachable from <ref>, or
+# nothing when the ref reaches none.
 nearest_version_tag() {
-  local ref="$1" excluded="${2:-}"
-  if [[ -n $excluded ]]; then
-    git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" --exclude "$excluded" "$ref" 2>/dev/null || true
-  else
-    git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$ref" 2>/dev/null || true
-  fi
+  git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" "$1" 2>/dev/null || true
+}
+
+# version_tag_behind <version tag> -> the nearest version tag reachable from
+# <tag> other than <tag> itself, or nothing when it reaches none.
+#
+# What `git describe` answered for the run that pushed <tag>, back when <tag>
+# did not exist yet — so it is the baseline a half-published release was cut
+# over, and the notes rebuilt from it come back the same.
+version_tag_behind() {
+  git describe --tags --abbrev=0 --match "$VERSION_TAG_GLOB" --exclude "$1" "$1" 2>/dev/null || true
 }
 
 # resolve_baseline <target ref> [since ref] -> BASELINE_REF and CURRENT_VERSION.
@@ -368,19 +369,27 @@ verify_trunk_contains() {
 # is on origin, and nothing carries its notes.
 #
 # Re-running used to dead-end there. The tag sits on the very commit the run
-# was releasing, so the next run resolves it as its own baseline and finds an
-# empty range — "nothing to release" over a release that never happened.
-# Consumers worked around it in YAML, by deleting the tag from origin so the
-# next run could re-cut it.
+# was releasing, so the next run resolves it as its own baseline and finds a
+# range with no commit in it — "nothing to release" over a release that never
+# happened. Consumers worked around it in YAML, by deleting the tag from origin
+# so the next run could re-cut it.
 #
-# So the script looks for one on the target before it computes anything, and
+# So the script looks for one on the target before it computes a version, and
 # resumes at step 4: the version is read off the tag, the notes are rebuilt
 # over the range the tag was cut on, and nothing is tagged or pushed.
 
-# half_published_tag <target ref> -> the version tag on <target> that origin
-# holds and GitHub carries no release for, or nothing.
-half_published_tag() {
+RESUME_TAG="" # the half-published tag being resumed, empty on an ordinary run
+
+# resolve_resume <target ref> -> RESUME_TAG.
+#
+# The version tag on <target> that origin holds and GitHub carries no release
+# for, or nothing when the target carries no such tag. A global rather than
+# something printed, so the two questions it cannot get an answer to can end
+# the run: `exit` inside a command substitution would end the subshell alone,
+# and the caller would carry on with the code lost.
+resolve_resume() {
   local target="$1" tag=""
+  RESUME_TAG=""
 
   # The highest version tag on the target's commit. release.sh writes one tag
   # per release, so more than one there is somebody else's doing; the highest
@@ -391,16 +400,33 @@ half_published_tag() {
   # origin's tag, never the machine's. A tag --local wrote, or one made by
   # hand, has no release for the plain reason that it was never pushed: what it
   # is waiting for is step 3, not step 4.
-  git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1 || return 0
+  #
+  # Told apart rather than folded together, the way verify_trunk_contains tells
+  # its answer from a git that could not give one: --exit-code answers 2 for a
+  # ref the remote does not hold, and something else when the lookup itself
+  # failed. Reading the second as the first would turn a lost network into
+  # "nothing to release" over a release waiting to be published.
+  local held=0
+  git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null || held=$?
+  case "$held" in
+    0) ;;
+    2) return 0 ;;
+    *) die "cannot tell whether origin holds ${tag}: git ls-remote exited ${held}" ;;
+  esac
 
   # `gh release view` exits non-zero both for a tag with no release and for gh
-  # failing outright, and no code tells the two apart. Read the way
-  # verify_trunk_contains reads its fetch: gh answered `auth status` and `repo
-  # view` in the preflight a moment ago, so what fails here is the lookup
-  # finding nothing.
-  ! gh release view "$tag" --repo "$REPO" >/dev/null 2>&1 || return 0
+  # failing outright, and no code tells those apart either. So a failure is put
+  # back to gh: a repo view that answers proves the lookup really did find
+  # nothing, while one that does not leaves the run unable to tell — and
+  # publishing over a release that may already be there is not a guess worth
+  # making.
+  if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+    return 0
+  fi
+  gh repo view "$REPO" --json nameWithOwner >/dev/null \
+    || die "cannot tell whether ${tag} has a GitHub release: gh's own reason is above"
 
-  printf '%s' "$tag"
+  RESUME_TAG="$tag"
 }
 
 # ------------------------------------------------------------------ preflight
@@ -445,29 +471,29 @@ fi
 # ------------------------------------------------------------ step 1: version
 
 resolve_baseline "$TO_REF" "$SINCE_REF"
+# Before the version rather than before the tag, like the refusals above it: a
+# run that will refuse should refuse before it prints a version nothing can act
+# on. Under --dry-run it warns instead and the version follows, which is the
+# whole point of previewing a ref the trunk has yet to take.
+#
+# A resume answers to it too, ahead of being recognised as one. The tag it
+# would publish is written already, so the guard undoes nothing there — but a
+# release on a stranded tag is one more thing to unpick once the topology is
+# put right, and the fix the refusal names is the same either way.
+verify_trunk_contains "$TO_REF"
 
 # A half-published release on the target ends the version computation before it
 # starts: the version is the tag's, and the run has only step 4 left to do.
-RESUME_TAG=$(half_published_tag "$TO_REF")
+resolve_resume "$TO_REF"
 RESUMING=false
 
 if [[ -n $RESUME_TAG ]]; then
   RESUMING=true
   note "${RESUME_TAG} is on origin with no GitHub release: resuming it at step 4 rather than computing a new version."
   # The baseline the run that pushed the tag resolved, so the notes come back
-  # the same: the nearest version tag behind this one. --since still wins over
-  # it, the way it does for a release being cut.
-  [[ -n $SINCE_REF ]] || BASELINE_REF=$(nearest_version_tag "$RESUME_TAG" "$RESUME_TAG")
-else
-  # Before the version rather than before the tag, like the refusals above it: a
-  # run that will refuse should refuse before it prints a version nothing can act
-  # on. Under --dry-run it warns instead and the version follows, which is the
-  # whole point of previewing a ref the trunk has yet to take.
-  #
-  # A resume gets past it, and for the reason --dry-run does: the guard is over
-  # where a tag lands, and a resume writes no tag to strand. The one it
-  # publishes is on origin already, put there by a run this guard let through.
-  verify_trunk_contains "$TO_REF"
+  # the same. --since still wins over it, the way it does for a release being
+  # cut.
+  [[ -n $SINCE_REF ]] || BASELINE_REF=$(version_tag_behind "$RESUME_TAG")
 fi
 
 if [[ -n $BASELINE_REF ]]; then
