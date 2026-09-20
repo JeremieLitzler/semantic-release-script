@@ -4,7 +4,7 @@
 # Run from inside a clone of french-gas-stations-scraper.
 set -euo pipefail
 
-RELEASE_SH="E:/Git/GitHub/semantic-release-script-testing/release.sh"
+RELEASE_SH="E:/Git/GitHub/semantic-release-script/scripts/release/release.sh"
 
 # v0.0.1
 bash "$RELEASE_SH" -y --to 1ed47cf
