@@ -66,9 +66,14 @@ auth_status() {
 
 repo_view() {
   local json="$STATE/repo.json" default_branch=""
-  if [[ -e $STATE/repo-unreachable ]]     || { [[ -e $STATE/default-branch-unreadable ]] && [[ " $* " == *defaultBranchRef* ]]; }; then
-    printf 'fake gh: could not resolve to a Repository
-' >&2
+  local unreadable=false
+  [[ ! -e $STATE/repo-unreachable ]] || unreadable=true
+  # Only the call asking for the default branch (--json defaultBranchRef).
+  if [[ -e $STATE/default-branch-unreadable && " $* " == *defaultBranchRef* ]]; then
+    unreadable=true
+  fi
+  if [[ $unreadable == true ]]; then
+    printf 'fake gh: could not resolve to a Repository\n' >&2
     exit 1
   fi
   [[ ! -f $STATE/default-branch ]] || default_branch=$(cat "$STATE/default-branch")
