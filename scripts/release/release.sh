@@ -493,25 +493,63 @@ resolve_resume() {
 
 # ------------------------------------------------------------------ preflight
 
-(( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (running ${BASH_VERSION})"
-command -v git >/dev/null 2>&1 || die "git not found in PATH"
-command -v gh  >/dev/null 2>&1 || die "GitHub CLI (gh) not found in PATH"
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repository"
-gh auth status >/dev/null 2>&1 || die "gh is not logged in — run: gh auth login"
+# Each check returns 0 when it holds. When it does not, it returns 1 with the
+# reason in CHECK_FAILURE, so the preflight can stop on the first failure today
+# and a mode that lists every check can reuse them as they are.
+CHECK_FAILURE=""
+fail_check() { CHECK_FAILURE="$*"; return 1; }
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner) \
-  || die "cannot resolve the GitHub repository for this checkout"
-REPO_URL="https://github.com/${REPO}"
-
+check_bash_version() {
+  (( BASH_VERSINFO[0] >= 4 )) || fail_check "bash 4+ required (running ${BASH_VERSION})"
+}
+check_git_installed() {
+  command -v git >/dev/null 2>&1 || fail_check "git not found in PATH"
+}
+check_gh_installed() {
+  command -v gh >/dev/null 2>&1 || fail_check "GitHub CLI (gh) not found in PATH"
+}
+check_inside_work_tree() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail_check "not inside a git repository"
+}
+check_gh_logged_in() {
+  gh auth status >/dev/null 2>&1 || fail_check "gh is not logged in — run: gh auth login"
+}
+# Sets REPO and REPO_URL.
+check_repository() {
+  REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner) \
+    || { fail_check "cannot resolve the GitHub repository for this checkout"; return; }
+  REPO_URL="https://github.com/${REPO}"
+}
 # The trunk is the one branch releases are cut from, and GitHub's default
 # branch answers for it: a repository whose trunk is `develop` needs no edit
 # here. --trunk names it when the two differ, or when there is no default
-# branch to read.
-if [[ -z $TRUNK ]]; then
+# branch to read. Sets TRUNK.
+check_trunk() {
+  [[ -z $TRUNK ]] || return 0
   TRUNK=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name // ""') \
-    || die "cannot resolve the default branch for this checkout"
-  [[ -n $TRUNK ]] || die "cannot resolve the trunk — name it with --trunk <name>"
-fi
+    || { fail_check "cannot resolve the default branch for this checkout"; return; }
+  [[ -n $TRUNK ]] || fail_check "cannot resolve the trunk — name it with --trunk <name>"
+}
+
+# The checks in the order they run.
+PREFLIGHT_CHECKS=(
+  check_bash_version
+  check_git_installed
+  check_gh_installed
+  check_inside_work_tree
+  check_gh_logged_in
+  check_repository
+  check_trunk
+)
+
+# Runs the checks in order and stops on the first one that fails.
+preflight() {
+  local check
+  for check in "${PREFLIGHT_CHECKS[@]}"; do
+    "$check" || die "$CHECK_FAILURE"
+  done
+}
+preflight
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # A release is cut from the trunk, or from a `release/*` branch off it. `HEAD`
