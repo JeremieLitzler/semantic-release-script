@@ -40,6 +40,10 @@ _Avoid_: version regression, downgrade
 The one long-lived branch of a repository that releases are cut from, read from GitHub's default branch unless `--trunk` names another. Every version tag should sit on a commit the trunk carries.
 _Avoid_: main branch, default branch (they usually coincide, but the trunk is the role)
 
+**Maintenance line**:
+A second long-lived branch that releases an older major, e.g. `v1.2.1` on `1.x` while the trunk is at `v2.0.0`. Not supported: a repository has the one trunk, and the guards that hold it to that (a tag the trunk cannot reach, a baseline that is not the highest version tag) refuse a release cut from a line.
+_Avoid_: LTS branch, release branch (a `release/*` branch is cut from the trunk and is not a line of its own), backport branch
+
 **Stranded tag**:
 A version tag on a commit the trunk cannot reach: left on a retired branch whose commits were rebased onto the trunk under new hashes, written on a `release/*` branch that grew a commit after it was cut, or written on a trunk commit nobody pushed. It's invisible when the baseline is resolved from the trunk.
 _Avoid_: orphan tag, lost tag
