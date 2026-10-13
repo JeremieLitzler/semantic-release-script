@@ -22,6 +22,9 @@
 #   issues/<number>.json   an issue or a pull request, as `gh api` returns it
 #   default-branch         the repository's default branch; absent means none
 #   logged-out             present when `gh auth status` must fail
+#   repo-unreachable       present when every `gh repo view` must fail
+#   default-branch-unreadable  present when `gh repo view` asked for the
+#                          default branch must fail
 
 set -euo pipefail
 
@@ -63,6 +66,11 @@ auth_status() {
 
 repo_view() {
   local json="$STATE/repo.json" default_branch=""
+  if [[ -e $STATE/repo-unreachable ]]     || { [[ -e $STATE/default-branch-unreadable ]] && [[ " $* " == *defaultBranchRef* ]]; }; then
+    printf 'fake gh: could not resolve to a Repository
+' >&2
+    exit 1
+  fi
   [[ ! -f $STATE/default-branch ]] || default_branch=$(cat "$STATE/default-branch")
   jq -n --arg repo "$REPO_NAME" --arg branch "$default_branch" \
     '{nameWithOwner: $repo, name: ($repo | split("/")[1]), owner: {login: ($repo | split("/")[0])},
