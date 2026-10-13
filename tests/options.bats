@@ -100,36 +100,47 @@ setup() {
   assert_output --partial "not inside a git repository"
 }
 
-@test "a missing gh stops the release before anything" {
+@test "a missing gh fails the release" {
   PATH=$(path_without gh) run_release --dry-run
 
-  assert_failure
+  assert_failure 1
   assert_output --partial "GitHub CLI (gh) not found in PATH"
 }
 
-@test "a missing git stops the release before anything" {
+@test "a missing git fails the release" {
   PATH=$(path_without git) run_release --dry-run
 
-  assert_failure
+  assert_failure 1
   assert_output --partial "git not found in PATH"
 }
 
-@test "a repository GitHub can't resolve stops the release" {
+@test "a repository GitHub can't resolve fails the release" {
   given_repo_unreachable
 
   run_release --dry-run
 
-  assert_failure
+  assert_failure 1
   assert_output --partial "cannot resolve the GitHub repository for this checkout"
 }
 
-@test "a default branch GitHub can't be asked for stops the release" {
+@test "a default branch GitHub can't be asked for fails the release" {
   given_default_branch_unreadable
 
   run_release --dry-run
 
-  assert_failure
+  assert_failure 1
   assert_output --partial "cannot resolve the default branch for this checkout"
+}
+
+@test "the preflight stops at the first failing check" {
+  mkdir "${BATS_TEST_TMPDIR}/not-a-repo"
+  cd "${BATS_TEST_TMPDIR}/not-a-repo"
+
+  PATH=$(path_without gh) run_release --dry-run
+
+  assert_failure 1
+  assert_output --partial "GitHub CLI (gh) not found in PATH"
+  refute_output --partial "not inside a git repository"
 }
 
 @test "the trunk is GitHub's default branch, not 'main'" {
