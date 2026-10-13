@@ -161,17 +161,35 @@ given_default_branch_unreadable() {
   touch "${FAKE_GH_STATE}/default-branch-unreadable"
 }
 
-# path_without <tool> — PATH minus every directory holding <tool>, to run
-# release.sh on a machine that lacks it. A directory shared with other tools
-# takes them along, so the test using it must keep asserting its own message:
-# a PATH that lost bash or jq would fail on something else.
+# path_without <tool> — a PATH to run release.sh on a machine that lacks <tool>.
+#
+# It is PATH minus every directory holding <tool>, which is enough where the
+# tool lives on its own. Where it shares a directory with bash (git, gh and bash
+# are all in /usr/bin on Linux), dropping the directory drops bash too, and the
+# run would end on "command not found" instead of the message under test. Then
+# the PATH becomes one directory of symlinks to everything PATH holds but
+# <tool>.
 path_without() {
   local dir kept="" dirs
   IFS=: read -ra dirs <<<"$PATH"
   for dir in "${dirs[@]}"; do
     [[ -x ${dir}/$1 || -x ${dir}/$1.exe ]] || kept="${kept:+${kept}:}${dir}"
   done
-  printf '%s' "$kept"
+
+  if (PATH=$kept command -v bash >/dev/null 2>&1); then
+    printf '%s' "$kept"
+    return
+  fi
+
+  # The first directory to hold a name wins, as it does on PATH: `ln` leaves an
+  # existing link alone and carries on.
+  local farm="${BATS_TEST_TMPDIR}/path-without-$1"
+  mkdir -p "$farm"
+  for dir in "${dirs[@]}"; do
+    [[ -d $dir ]] && ln -s -t "$farm" "$dir"/* 2>/dev/null || true
+  done
+  rm -f "${farm:?}/$1" "${farm:?}/$1.exe"
+  printf '%s' "$farm"
 }
 
 # given_default_branch <name> — the branch `gh repo view` reports as the
