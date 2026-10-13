@@ -86,6 +86,10 @@ _Avoid_: trial run, simulation, test run
 The `key=value` file `--summary` writes: the tag, the version, the bump, the baseline it was applied to, and whether a GitHub release was created. The exit code says how a run ended, the summary says what it decided, and only a run that got as far as deciding a version writes one.
 _Avoid_: output, report, manifest, metadata
 
+**Setup report**:
+What `--check` prints: every check of the preflight and every guard weighed against the target, each with its result, the reason and the fix, so a human sees all that would stop a release at once rather than the first one. It decides no version and writes nothing to the remote or to a file, though like any run that resolves a baseline it fetches tags into the local repository. It exits `0` when no check a release would refuse on fails, `3` when one does.
+_Avoid_: diagnostics, health check, doctor, check-setup
+
 ### Usage
 
 **Replay**:
