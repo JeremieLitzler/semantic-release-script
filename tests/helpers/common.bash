@@ -149,6 +149,29 @@ given_gh_logged_out() {
   touch "${FAKE_GH_STATE}/logged-out"
 }
 
+# given_repo_unreachable — `gh repo view` fails, as it does for a checkout whose
+# remote GitHub doesn't know.
+given_repo_unreachable() {
+  touch "${FAKE_GH_STATE}/repo-unreachable"
+}
+
+# given_default_branch_unreadable — the repository resolves, but asking for its
+# default branch fails.
+given_default_branch_unreadable() {
+  touch "${FAKE_GH_STATE}/default-branch-unreadable"
+}
+
+# path_without <tool> — PATH minus every directory holding <tool>, to run
+# release.sh on a machine that lacks it.
+path_without() {
+  local dir kept=""
+  local IFS=:
+  for dir in $PATH; do
+    [[ -e ${dir}/$1 || -e ${dir}/$1.exe ]] || kept="${kept:+${kept}:}${dir}"
+  done
+  printf '%s' "$kept"
+}
+
 # given_default_branch <name> — the branch `gh repo view` reports as the
 # repository's default, the one release.sh resolves the trunk from.
 given_default_branch() {
