@@ -162,12 +162,14 @@ given_default_branch_unreadable() {
 }
 
 # path_without <tool> — PATH minus every directory holding <tool>, to run
-# release.sh on a machine that lacks it.
+# release.sh on a machine that lacks it. A directory shared with other tools
+# takes them along, so the test using it must keep asserting its own message:
+# a PATH that lost bash or jq would fail on something else.
 path_without() {
-  local dir kept=""
-  local IFS=:
-  for dir in $PATH; do
-    [[ -e ${dir}/$1 || -e ${dir}/$1.exe ]] || kept="${kept:+${kept}:}${dir}"
+  local dir kept="" dirs
+  IFS=: read -ra dirs <<<"$PATH"
+  for dir in "${dirs[@]}"; do
+    [[ -x ${dir}/$1 || -x ${dir}/$1.exe ]] || kept="${kept:+${kept}:}${dir}"
   done
   printf '%s' "$kept"
 }
