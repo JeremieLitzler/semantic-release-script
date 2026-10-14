@@ -295,13 +295,19 @@ refusal() {
 # refusal_reason <name> [detail] [target] — the words of a refusal, for the
 # setup report to list a check the way a release would refuse it.
 refusal_reason() {
-  local detail="${2:-}" target="${3:-}"
+  local detail="${2:-}" target="${3:-}" stranded="${4:-}"
   case "$1" in
     shallow)    printf '%s' "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  printf '%s' "tag ${detail} already exists locally — it is the release already cut there: name a later target with --to or an earlier baseline with --since, or delete the tag if it is stale" ;;
-    non-monotonic) printf '%s' "${detail} is not higher than ${target}, a version tag already in the repository: the baseline is older than the latest release — check that the tags are whole, and that --since names a release no older than it" ;;
+    baseline-behind)
+      printf '%s' "the baseline ${detail} is not the highest version tag in the repository, ${target}: the next version would not be above every release already cut"
+      if [[ -n $stranded ]]; then
+        printf '%s' " — ${stranded} sit on commits the target cannot reach (stranded tags). Find each one's twin on the trunk, the commit with the same tree (compare git rev-parse <tag>^{tree} with git log --format='%h %T'), and re-tag it there under the same name"
+      else
+        printf '%s' " — every version tag is reachable, so check that --since names a release no older than ${target}"
+      fi ;;
     *)          printf '%s' "refused: $1" ;;
   esac
 }
@@ -720,19 +726,27 @@ check_tag_free() {
   fi
 }
 
-# check_version_monotonic — the version to write is higher than every version
-# tag already in the repository. On a single trunk only a baseline older than
-# the latest release can make it lower.
-check_version_monotonic() {
+# check_baseline_highest — the baseline is the highest version tag in the
+# repository. On a single trunk, the next version can only fall at or below
+# a release already cut when the baseline is older than the latest one: the
+# tags the target cannot reach (stranded tags), or a --since older than the
+# latest release. One check covers both, and lists the stranded tags it finds.
+#
+# CURRENT_VERSION is the baseline's version, so a run with no baseline and
+# tags somewhere else refuses as well: 0.0.0 is below every one of them.
+check_baseline_highest() {
   local highest
   highest=$(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname | head -n 1)
   [[ -n $highest ]] || return 0
-  # highest is the top of the sort, so the version is higher only when it is
-  # not equal to it and sorts after it.
-  if [[ ${highest#v} == "$NEW_VERSION" \
-        || $(printf '%s\n%s\n' "${highest#v}" "$NEW_VERSION" | sort -V | tail -n 1) != "$NEW_VERSION" ]]; then
-    fail_check "$(refusal_reason non-monotonic "$NEW_TAG" "$highest")"
-  fi
+  [[ ${highest#v} != "$CURRENT_VERSION" ]] || return 0
+
+  local tag stranded=""
+  while IFS= read -r tag; do
+    [[ -n $tag ]] || continue
+    git merge-base --is-ancestor "${tag}^{commit}" "${TO_REF}^{commit}" 2>/dev/null       || stranded+="${stranded:+, }${tag} ($(git rev-parse --short "${tag}^{commit}"))"
+  done < <(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname)
+
+  fail_check "$(refusal_reason baseline-behind "${BASELINE_REF:-0.0.0}" "$highest" "$stranded")"
 }
 
 # ---------------------------------------------------------------- setup report
@@ -876,21 +890,21 @@ run_setup_report() {
   fi
   if [[ -n $needs ]]; then
     report_skip "the next tag is free" "$needs"
-    report_skip "the next version is higher than every version tag" "$needs"
+    report_skip "the baseline is the highest version tag" "$needs"
   elif [[ -n $RESUME_TAG ]]; then
     report info "the next tag is free" "not weighed: a release would resume ${RESUME_TAG}, which writes no tag"
-    report info "the next version is higher than every version tag" "not weighed: a release would resume ${RESUME_TAG}, which computes no version"
+    report info "the baseline is the highest version tag" "not weighed: a release would resume ${RESUME_TAG}, which computes no version"
   else
     select_baseline "$TO_REF" "$SINCE_REF"
     scan_commits "$TO_REF"
     if (( ${#COMMITS[@]} == 0 )); then
       report info "the next tag is free" "not weighed: no commit to release in range '${RANGE}', so a release would stop with nothing to release (exit ${EXIT_NOTHING_TO_RELEASE})"
-      report info "the next version is higher than every version tag" "not weighed: no commit to release in range '${RANGE}'"
+      report info "the baseline is the highest version tag" "not weighed: no commit to release in range '${RANGE}'"
     else
       classify_commits
       next_version
       report_check fail "the next tag is free" "" check_tag_free
-      report_check fail "the next version is higher than every version tag" "" check_version_monotonic
+      report_check fail "the baseline is the highest version tag" "" check_baseline_highest
     fi
   fi
 }
@@ -998,7 +1012,7 @@ else
   # A tag on the target with no release never reaches these: that one is a
   # resume, decided above.
   check_tag_free || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
-  check_version_monotonic || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
+  check_baseline_highest || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 fi
 
 gate "Continue to step 2 and build the release notes for ${NEW_TAG}?"

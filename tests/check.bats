@@ -86,8 +86,8 @@ setup() {
 
   assert_failure 3
   assert_output --partial "ok    the next tag is free"
-  assert_output --partial "FAIL  the next version is higher than every version tag"
-  assert_output --partial "v1.1.0 is not higher than v2.0.0"
+  assert_output --partial "FAIL  the baseline is the highest version tag"
+  assert_output --partial "the baseline v1.0.0 is not the highest version tag in the repository, v2.0.0"
   assert_output --partial "--since"
 }
 
@@ -101,7 +101,7 @@ setup() {
 
   assert_success
   assert_output --partial "ok    the next tag is free"
-  assert_output --partial "ok    the next version is higher than every version tag"
+  assert_output --partial "ok    the baseline is the highest version tag"
 }
 
 @test "a range with no commit leaves the version guards unweighed, and is not a failure" {
@@ -163,7 +163,7 @@ setup() {
   assert_failure 3
   assert_output --partial "FAIL  not a shallow clone"
   assert_output --partial "git fetch --unshallow"
-  assert_output --partial "skip  the next version is higher than every version tag"
+  assert_output --partial "skip  the baseline is the highest version tag"
 }
 
 @test "a gh that is not logged in is a failing check, so 3" {
