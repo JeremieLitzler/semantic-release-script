@@ -300,7 +300,7 @@ refusal_reason() {
     shallow)    printf '%s' "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
     stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
-    tag-taken)  printf '%s' "tag ${detail} already exists locally" ;;
+    tag-taken)  printf '%s' "tag ${detail} already exists locally — it is the release already cut there: name a later target with --to or an earlier baseline with --since, or delete the tag if it is stale" ;;
     non-monotonic) printf '%s' "${detail} is not higher than ${target}, a version tag already in the repository: the baseline is older than the latest release — check that the tags are whole, and that --since names a release no older than it" ;;
     *)          printf '%s' "refused: $1" ;;
   esac
@@ -663,9 +663,9 @@ declare -a C_HASH=() C_SHORT=() C_SUBJECT=() C_CATEGORY=()
 classify_commits() {
   local hash raw short rest subject body
   for hash in "${COMMITS[@]}"; do
-    raw=$(git show -s --format=$'%h%s%b' "$hash")
-    short="${raw%%$''*}"; rest="${raw#*$''}"
-    subject="${rest%%$''*}"; body="${rest#*$''}"
+    raw=$(git show -s --format=$'%h\x1f%s\x1f%b' "$hash")
+    short="${raw%%$'\x1f'*}"; rest="${raw#*$'\x1f'}"
+    subject="${rest%%$'\x1f'*}"; body="${rest#*$'\x1f'}"
 
     C_HASH+=("$hash")
     C_SHORT+=("$short")
@@ -727,9 +727,10 @@ check_version_monotonic() {
   local highest
   highest=$(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname | head -n 1)
   [[ -n $highest ]] || return 0
-  if [[ $(printf '%s
-%s
-' "${highest#v}" "$NEW_VERSION" | sort -V | tail -n 1) != "$NEW_VERSION"         || ${highest#v} == "$NEW_VERSION" ]]; then
+  # highest is the top of the sort, so the version is higher only when it is
+  # not equal to it and sorts after it.
+  if [[ ${highest#v} == "$NEW_VERSION" \
+        || $(printf '%s\n%s\n' "${highest#v}" "$NEW_VERSION" | sort -V | tail -n 1) != "$NEW_VERSION" ]]; then
     fail_check "$(refusal_reason non-monotonic "$NEW_TAG" "$highest")"
   fi
 }
