@@ -1,0 +1,23 @@
+
+== Setup report ==
+
+ok    bash 4 or later
+ok    git installed
+ok    gh installed
+ok    inside a git repository
+FAIL  gh is logged in
+        gh is not logged in — run: gh auth login
+skip  the GitHub repository resolves
+        needs gh logged in
+ok    the trunk is known
+ok    on the trunk or a release branch
+ok    the working tree is clean
+FAIL  not a shallow clone
+        shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)
+ok    the version tags can be fetched from origin
+ok    the trunk 'main' is reachable on origin
+ok    the trunk carries HEAD
+skip  half-published release
+        needs the GitHub repository
+
+x 2 check(s) failed: a release would refuse

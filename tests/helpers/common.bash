@@ -332,3 +332,16 @@ normalise_changelog_dates() {
   fi
   sed -E -i 's/^(## v[0-9]+\.[0-9]+\.[0-9]+) \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$/\1 (<date>)/' "$file"
 }
+
+# run_check [options...] — run `release.sh --check` in the current directory.
+run_check() {
+  run bash "$RELEASE_SH" --check "$@"
+}
+
+# assert_golden_output <golden file name> — the output of the last `run`, as a
+# whole, against tests/golden/<name>.
+assert_golden_output() {
+  local actual="${BATS_TEST_TMPDIR}/actual-output"
+  printf '%s\n' "$output" >"$actual"
+  assert_golden "$actual" "$1"
+}
