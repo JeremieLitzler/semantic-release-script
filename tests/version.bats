@@ -264,8 +264,65 @@ setup() {
   run_release --dry-run --since v1.0.0
 
   assert_failure 3
-  assert_output --partial "v1.1.0 is not higher than v2.0.0"
+  assert_output --partial "the baseline v1.0.0 is not the highest version tag in the repository, v2.0.0"
   refute_remote_tag v1.1.0
+}
+
+# A version tag written on a branch the trunk never took: stranded, so the
+# baseline resolved from the trunk is older than the latest release.
+given_stranded_tag() {
+  git switch -q -c retired-branch
+  commit_change "fix: ship the hotfix from the retired branch"
+  tag_version "$1"
+  push_tag_fixture "$1"
+  git switch -q main
+}
+
+@test "a stranded tag above the baseline is refused, and named" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  given_stranded_tag v1.0.2
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run
+
+  assert_failure 3
+  assert_output --partial "the baseline v1.0.0 is not the highest version tag in the repository, v1.0.2"
+  assert_output --partial "v1.0.2 ("
+  assert_output --partial "stranded tags"
+  assert_output --partial "twin"
+}
+
+@test "a feat on v0.29.0 while v0.30.1 is stranded is refused, though v0.30.0 is free" {
+  tag_version v0.29.0
+  push_fixture
+  given_release v0.29.0
+  given_stranded_tag v0.30.1
+  commit_change "feat: export the orders as CSV"
+  push_fixture
+
+  run_release --dry-run
+
+  assert_failure 3
+  assert_output --partial "the baseline v0.29.0 is not the highest version tag in the repository, v0.30.1"
+  refute_output --partial "v0.30.0"
+}
+
+@test "a stranded tag above the baseline fails the report" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  given_stranded_tag v1.0.2
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_check
+
+  assert_failure 3
+  assert_output --partial "FAIL  the baseline is the highest version tag"
+  assert_output --partial "v1.0.2 ("
 }
 
 @test "a version whose tag already exists is refused" {
