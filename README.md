@@ -31,6 +31,29 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
+| `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to` and `--since`. |
+
+### Checking your setup
+
+```bash
+./scripts/release/release.sh --check     # would a release refuse right now, and why?
+```
+
+`--check` runs every check of the preflight and every guard against the target a release would use, and prints them all as a setup report: each result, with its reason and the fix. A release stops at the first failure; the report lists them all, so you see what stands between you and a release at once — after vendoring the script, or after a refusal.
+
+```text
+ok    gh installed
+FAIL  gh is logged in
+        gh is not logged in — run: gh auth login
+skip  the GitHub repository resolves
+        needs gh logged in
+warn  on the trunk or a release branch
+        you are on 'some-feature', not 'main' or a 'release/*' branch
+```
+
+A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release would refuse or stop), a `skip` (a failing check withheld what it needs) or an `info`. A half-published release on the target is an `info`: a state the next run finishes, not a failure.
+
+It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
 
 ### Exit codes
 
@@ -38,10 +61,10 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. |
+| `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. With `--check`: no check a release would refuse on failed. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, or a target commit the trunk does not contain. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, or a target commit the trunk does not contain. With `--check`: a check a release would refuse on failed. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
@@ -273,6 +296,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 | `tests/resume.bats` | resuming a half-published release: what is detected, what is left alone, what a resume writes |
 | `tests/options.bats` | `--notes`, `--changelog`, `--trunk`, the trunk containment guard, bad arguments, the preflight checks |
 | `tests/exit-codes.bats` | the code each outcome exits on: released, previewed, nothing to release, refused, error |
+| `tests/check.bats` | `--check`: the setup report, its golden files, what it lists, skips and refuses |
 | `tests/summary.bats` | `--summary`: the keys, their values on each outcome, and the runs that write no file at all |
 
 The reference dataset (`build_reference_dataset` in `tests/helpers/fixture.bash`) is the readable spec of every notes rule: 21 commits covering features with and without an issue, bug fixes, breaking changes flagged with `!`, `BREAKING CHANGE:` and `BREAKING-CHANGE:`, "BREAKING CHANGE" in prose, the other conventional types, a number that isn't an issue, a pull request number, several commits on one issue, and a merge commit. `tests/golden/reference-notes.md` holds the notes it produces.

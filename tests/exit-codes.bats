@@ -109,3 +109,31 @@ setup() {
   assert_line "  2  nothing to release in the commit range"
   assert_line "  3  refused by a guard"
 }
+
+@test "--check exits 0 when no check a release would refuse on fails, warnings allowed" {
+  push_fixture
+  git switch -q -c some-feature
+
+  run bash "$RELEASE_SH" --check
+
+  assert_success
+  assert_output --partial "warn  on the trunk or a release branch"
+}
+
+@test "--check exits 3 when a check a release would refuse on fails, gh logged out included" {
+  push_fixture
+  given_gh_logged_out
+
+  run bash "$RELEASE_SH" --check
+
+  assert_failure 3
+  assert_output --partial "FAIL  gh is logged in"
+}
+
+@test "--check exits 1 when it cannot run: bad usage, no git to evaluate with" {
+  run bash "$RELEASE_SH" --check --yes
+  assert_failure 1
+
+  PATH=$(path_without git) run bash "$RELEASE_SH" --check
+  assert_failure 1
+}
