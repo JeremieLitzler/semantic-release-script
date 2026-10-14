@@ -51,7 +51,7 @@ warn  on the trunk or a release branch
         you are on 'some-feature', not 'main' or a 'release/*' branch
 ```
 
-A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release would refuse or stop), a `skip` (a failing check withheld what it needs) or an `info`. A half-published release on the target is an `info`: a state the next run finishes, not a failure.
+A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release would refuse or stop), a `skip` (a failing check withheld what it needs) or an `info`. A half-published release on the target is an `info`: a state the next run finishes, not a failure. The report weighs each guard of a release against the target, after the same fetch: not a shallow clone, the version tags fetched, the trunk carrying the target (the stranded tag), the next tag free, and the next version higher than every version tag already there. The last two are weighed on the version a release would compute, without printing it; they are `info` where there is no version to weigh (a resume, or no commit in the range) and `skip` where the clone or the tags are not whole.
 
 It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
 
@@ -64,7 +64,7 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 | `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. With `--check`: no check a release would refuse on failed. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, or a target commit the trunk does not contain. With `--check`: a check a release would refuse on failed. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, a target commit the trunk does not contain, or a version not higher than every version tag already there. With `--check`: a check a release would refuse on failed. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 

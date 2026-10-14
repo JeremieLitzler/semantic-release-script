@@ -301,6 +301,7 @@ refusal_reason() {
     stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  printf '%s' "tag ${detail} already exists locally" ;;
+    non-monotonic) printf '%s' "${detail} is not higher than ${target}, a version tag already in the repository: the baseline is older than the latest release — check that the tags are whole, and that --since names a release no older than it" ;;
     *)          printf '%s' "refused: $1" ;;
   esac
 }
@@ -424,6 +425,15 @@ resolve_baseline() {
   # refusal (see check_tags_fetched): it leaves the stale local tags in place.
   check_tags_fetched || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 
+  select_baseline "$target" "$since"
+}
+
+# select_baseline <target ref> [since ref] -> BASELINE_REF and CURRENT_VERSION,
+# once the tags it reads are known to be whole (check_not_shallow and
+# check_tags_fetched): a release goes through them in resolve_baseline, and the
+# setup report has listed them already.
+select_baseline() {
+  local target="$1" since="${2:-}"
   if [[ -n $since ]]; then
     verify_ref "$since"
     BASELINE_REF="$since"
@@ -625,6 +635,105 @@ check_tree_clean() {
     || fail_check "the working tree is not clean; the tag will only contain committed work"
 }
 
+# classify <subject> <body> -> breaking | feature | fix | other
+classify() {
+  local subject="$1" body="$2" type="" bang=""
+  if [[ $subject =~ ^([a-zA-Z]+)(\([^\)]*\))?(!)?: ]]; then
+    type="${BASH_REMATCH[1],,}"
+    bang="${BASH_REMATCH[3]}"
+  fi
+  # Conventional Commits requires the uppercase footer token "BREAKING CHANGE"
+  # (or its synonym "BREAKING-CHANGE"), followed by ": " or " #" — not just
+  # those words appearing anywhere in the body's prose.
+  if [[ -n $bang || $body =~ (^|$'\n')BREAKING[-\ ]CHANGE(:\ |\ \#) ]]; then
+    printf 'breaking'
+  elif [[ $type == "feat" ]]; then
+    printf 'feature'
+  elif [[ $type == "fix" ]]; then
+    printf 'fix'
+  else
+    printf 'other'
+  fi
+}
+
+declare -a C_HASH=() C_SHORT=() C_SUBJECT=() C_CATEGORY=()
+
+# classify_commits -> C_HASH, C_SHORT, C_SUBJECT and C_CATEGORY, one entry per
+# commit in COMMITS.
+classify_commits() {
+  local hash raw short rest subject body
+  for hash in "${COMMITS[@]}"; do
+    raw=$(git show -s --format=$'%h%s%b' "$hash")
+    short="${raw%%$''*}"; rest="${raw#*$''}"
+    subject="${rest%%$''*}"; body="${rest#*$''}"
+
+    C_HASH+=("$hash")
+    C_SHORT+=("$short")
+    C_SUBJECT+=("$subject")
+    C_CATEGORY+=("$(classify "$subject" "$body")")
+  done
+}
+
+# scan_commits <target ref> -> RANGE and COMMITS: the commits the baseline
+# leaves out of the target, merges aside. Shared with the setup report, which
+# weighs the version a release would compute without printing it.
+scan_commits() {
+  local target="$1"
+  if [[ -n $BASELINE_REF ]]; then
+    RANGE="${BASELINE_REF}..${target}"
+  else
+    RANGE="${target}"
+  fi
+  mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
+}
+
+# next_version -> LEVEL, NEW_VERSION and NEW_TAG, from the categories of the
+# commits classified and the version the baseline carries.
+next_version() {
+  LEVEL="patch"
+  local category
+  for category in "${C_CATEGORY[@]}"; do
+    case "$category" in
+      breaking) LEVEL="major"; break ;;
+      feature)  LEVEL="minor" ;;
+    esac
+  done
+  [[ -n $FORCE_LEVEL ]] && LEVEL="$FORCE_LEVEL"
+
+  local major minor patch
+  IFS='.' read -r major minor patch <<<"$CURRENT_VERSION"
+  case "$LEVEL" in
+    major) major=$((major + 1)); minor=0; patch=0 ;;
+    minor) minor=$((minor + 1)); patch=0 ;;
+    patch) patch=$((patch + 1)) ;;
+  esac
+  NEW_VERSION="${major}.${minor}.${patch}"
+  NEW_TAG="v${NEW_VERSION}"
+}
+
+# check_tag_free — the tag a release would write does not exist yet. A tag on
+# the target that origin holds with no release is a resume, decided before it
+# gets here.
+check_tag_free() {
+  if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
+    fail_check "$(refusal_reason tag-taken "$NEW_TAG")"
+  fi
+}
+
+# check_version_monotonic — the version to write is higher than every version
+# tag already in the repository. On a single trunk only a baseline older than
+# the latest release can make it lower.
+check_version_monotonic() {
+  local highest
+  highest=$(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname | head -n 1)
+  [[ -n $highest ]] || return 0
+  if [[ $(printf '%s
+%s
+' "${highest#v}" "$NEW_VERSION" | sort -V | tail -n 1) != "$NEW_VERSION"         || ${highest#v} == "$NEW_VERSION" ]]; then
+    fail_check "$(refusal_reason non-monotonic "$NEW_TAG" "$highest")"
+  fi
+}
+
 # ---------------------------------------------------------------- setup report
 #
 # `--check` runs every check above and every guard against the target a release
@@ -731,7 +840,9 @@ run_setup_report() {
   report_check warn "on the trunk or a release branch" "" check_branch
   report_check warn "the working tree is clean" "" check_tree_clean
   report_check fail "not a shallow clone" "" check_not_shallow
+  local tags_whole=$REPORT_OK
   report_check fail "the version tags can be fetched from origin" "" check_tags_fetched
+  [[ $REPORT_OK == true ]] || tags_whole=false
   report_check fail "the trunk '${TRUNK}' is reachable on origin" "" check_trunk_fetched
   if [[ $REPORT_OK == true ]]; then
     report_check fail "the trunk carries ${TO_REF}" "" check_trunk_contains "$TO_REF"
@@ -739,9 +850,13 @@ run_setup_report() {
     report_skip "the trunk carries ${TO_REF}" "the trunk fetched"
   fi
 
+  # The guards over the version a release would write. Weighed on the version
+  # it would compute, not printed: the report decides none.
+  local resume_known=false
   if [[ $repository != true ]]; then
     report_skip "half-published release" "the GitHub repository"
   elif resolve_resume "$TO_REF"; then
+    resume_known=true
     if [[ -n $RESUME_TAG ]]; then
       # A state, not a failure: the next run finishes the release.
       report info "half-published release" "${RESUME_TAG} is on origin with no GitHub release: a release would resume it at step 4"
@@ -750,6 +865,32 @@ run_setup_report() {
     fi
   else
     report FAIL "half-published release" "$CHECK_FAILURE"
+  fi
+
+  local needs=""
+  if [[ $tags_whole != true ]]; then
+    needs="the shallow clone and version tag checks to hold"
+  elif [[ $resume_known != true ]]; then
+    needs="the half-published release lookup"
+  fi
+  if [[ -n $needs ]]; then
+    report_skip "the next tag is free" "$needs"
+    report_skip "the next version is higher than every version tag" "$needs"
+  elif [[ -n $RESUME_TAG ]]; then
+    report info "the next tag is free" "not weighed: a release would resume ${RESUME_TAG}, which writes no tag"
+    report info "the next version is higher than every version tag" "not weighed: a release would resume ${RESUME_TAG}, which computes no version"
+  else
+    select_baseline "$TO_REF" "$SINCE_REF"
+    scan_commits "$TO_REF"
+    if (( ${#COMMITS[@]} == 0 )); then
+      report info "the next tag is free" "not weighed: no commit to release in range '${RANGE}', so a release would stop with nothing to release (exit ${EXIT_NOTHING_TO_RELEASE})"
+      report info "the next version is higher than every version tag" "not weighed: no commit to release in range '${RANGE}'"
+    else
+      classify_commits
+      next_version
+      report_check fail "the next tag is free" "" check_tag_free
+      report_check fail "the next version is higher than every version tag" "" check_version_monotonic
+    fi
   fi
 }
 
@@ -804,52 +945,14 @@ if [[ -n $RESUME_TAG ]]; then
   resolve_current_version
 fi
 
-if [[ -n $BASELINE_REF ]]; then
-  RANGE="${BASELINE_REF}..${TO_REF}"
-else
-  RANGE="${TO_REF}"
-fi
-
-mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
+scan_commits "$TO_REF"
 # Its own exit code: a range with nothing in it is the ordinary state of a
 # trunk between releases, and CI should not read it as a failure. The wording
 # stays as it was, for the consumers still grepping for it.
 (( ${#COMMITS[@]} > 0 )) \
   || stop "$EXIT_NOTHING_TO_RELEASE" "no commit to release in range '${RANGE}'"
 
-# classify <subject> <body> -> breaking | feature | fix | other
-classify() {
-  local subject="$1" body="$2" type="" bang=""
-  if [[ $subject =~ ^([a-zA-Z]+)(\([^\)]*\))?(!)?: ]]; then
-    type="${BASH_REMATCH[1],,}"
-    bang="${BASH_REMATCH[3]}"
-  fi
-  # Conventional Commits requires the uppercase footer token "BREAKING CHANGE"
-  # (or its synonym "BREAKING-CHANGE"), followed by ": " or " #" — not just
-  # those words appearing anywhere in the body's prose.
-  if [[ -n $bang || $body =~ (^|$'\n')BREAKING[-\ ]CHANGE(:\ |\ \#) ]]; then
-    printf 'breaking'
-  elif [[ $type == "feat" ]]; then
-    printf 'feature'
-  elif [[ $type == "fix" ]]; then
-    printf 'fix'
-  else
-    printf 'other'
-  fi
-}
-
-declare -a C_HASH=() C_SHORT=() C_SUBJECT=() C_CATEGORY=()
-
-for hash in "${COMMITS[@]}"; do
-  raw=$(git show -s --format=$'%h\x1f%s\x1f%b' "$hash")
-  short="${raw%%$'\x1f'*}"; rest="${raw#*$'\x1f'}"
-  subject="${rest%%$'\x1f'*}"; body="${rest#*$'\x1f'}"
-
-  C_HASH+=("$hash")
-  C_SHORT+=("$short")
-  C_SUBJECT+=("$subject")
-  C_CATEGORY+=("$(classify "$subject" "$body")")
-done
+classify_commits
 
 if [[ $RESUMING == true ]]; then
   NEW_TAG="$RESUME_TAG"
@@ -860,23 +963,7 @@ if [[ $RESUMING == true ]]; then
   [[ -z $FORCE_LEVEL ]] \
     || warn "--level is ignored on a resume: ${NEW_TAG} already carries the version"
 else
-  LEVEL="patch"
-  for category in "${C_CATEGORY[@]}"; do
-    case "$category" in
-      breaking) LEVEL="major"; break ;;
-      feature)  LEVEL="minor" ;;
-    esac
-  done
-  [[ -n $FORCE_LEVEL ]] && LEVEL="$FORCE_LEVEL"
-
-  IFS='.' read -r MAJOR MINOR PATCH <<<"$CURRENT_VERSION"
-  case "$LEVEL" in
-    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-    patch) PATCH=$((PATCH + 1)) ;;
-  esac
-  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-  NEW_TAG="v${NEW_VERSION}"
+  next_version
 fi
 
 if [[ $RESUMING == true ]]; then
@@ -907,13 +994,10 @@ else
   info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with --level)}"
   info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
 
-  # The only guard today against a non-monotonic version, and a narrow one: it
-  # catches the next version colliding with a tag that already exists, not a
-  # baseline older than the latest release in general. A tag on the target with
-  # no release never reaches it: that one is a resume, decided above.
-  if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
-    refusal tag-taken "$NEW_TAG"
-  fi
+  # A tag on the target with no release never reaches these: that one is a
+  # resume, decided above.
+  check_tag_free || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
+  check_version_monotonic || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 fi
 
 gate "Continue to step 2 and build the release notes for ${NEW_TAG}?"
