@@ -16,5 +16,7 @@ ok    the version tags can be fetched from origin
 ok    the trunk 'main' is reachable on origin
 ok    the trunk carries HEAD
 ok    no half-published release
+ok    the next tag is free
+ok    the next version is higher than every version tag
 
 No check a release would refuse on fails.
