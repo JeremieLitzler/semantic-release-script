@@ -155,6 +155,17 @@ setup() {
   assert_output --partial "FAIL  the trunk carries v1.0.1"
 }
 
+@test "a shallow clone fails the report with its fix, and skips the version guards" {
+  shallow_clone_fixture
+
+  run_check --trunk main
+
+  assert_failure 3
+  assert_output --partial "FAIL  not a shallow clone"
+  assert_output --partial "git fetch --unshallow"
+  assert_output --partial "skip  the next version is higher than every version tag"
+}
+
 @test "a gh that is not logged in is a failing check, so 3" {
   given_gh_logged_out
 
