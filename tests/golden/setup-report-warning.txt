@@ -1,0 +1,20 @@
+
+== Setup report ==
+
+ok    bash 4 or later
+ok    git installed
+ok    gh installed
+ok    inside a git repository
+ok    gh is logged in
+ok    the GitHub repository resolves
+ok    the trunk is known
+warn  on the trunk or a release branch
+        you are on 'some-feature', not 'main' or a 'release/*' branch
+ok    the working tree is clean
+ok    not a shallow clone
+ok    the version tags can be fetched from origin
+ok    the trunk 'main' is reachable on origin
+ok    the trunk carries HEAD
+ok    no half-published release
+
+No check a release would refuse on fails.

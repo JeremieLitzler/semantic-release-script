@@ -46,6 +46,8 @@ NOTES_OUT=""
 CHANGELOG_OUT=""
 SUMMARY_OUT=""
 TRUNK=""
+CHECK_ONLY=false
+RELEASE_OPTIONS=() # the options given that only shape a release, which --check refuses
 
 # ---------------------------------------------------------------- presentation
 
@@ -138,6 +140,10 @@ Options:
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
       --summary <file>  Write what the run decided to <file>, as key=value
                          lines: tag, version, bump, baseline, released.
+      --check           Print the setup report instead of releasing: every
+                         check of the preflight and every guard, each with its
+                         reason and its fix. Decides no version and writes no
+                         file. Takes only --trunk, --to and --since.
   -h, --help            Show this help.
 
 Steps (a human gate sits before each one, unless --dry-run):
@@ -157,6 +163,7 @@ Exit codes:
   1  error: bad usage, a gate with no terminal, a missing tool, a failed push
   2  nothing to release in the commit range
   3  refused by a guard
+     With --check, 0 and 3 say no check a release would refuse on failed, or one did.
   *  anything else is git or gh failing unguarded (128, say): treat it as 1
 
 Rebuilding a history of releases:
@@ -172,20 +179,27 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -y | --yes)     ASSUME_YES=true; shift ;;
-    -n | --dry-run) DRY_RUN=true; shift ;;
-    -l | --local)   LOCAL_ONLY=true; shift ;;
+    --check)        CHECK_ONLY=true; shift ;;
+    -y | --yes)     ASSUME_YES=true; RELEASE_OPTIONS+=("$1"); shift ;;
+    -n | --dry-run) DRY_RUN=true; RELEASE_OPTIONS+=("$1"); shift ;;
+    -l | --local)   LOCAL_ONLY=true; RELEASE_OPTIONS+=("$1"); shift ;;
     --since)        SINCE_REF="${2:-}"; [[ -n $SINCE_REF ]] || die "--since needs a ref"; shift 2 ;;
     --to)           TO_REF="${2:-}"; [[ -n $TO_REF ]] || die "--to needs a ref"; shift 2 ;;
     --trunk)        TRUNK="${2:-}"; [[ -n $TRUNK ]] || die "--trunk needs a name"; shift 2 ;;
-    --level)        FORCE_LEVEL="${2:-}"; shift 2 ;;
-    --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; shift 2 ;;
-    --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; shift 2 ;;
-    --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; shift 2 ;;
+    --level)        FORCE_LEVEL="${2:-}"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
+    --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
+    --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
+    --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     -h | --help)    usage; exit "$EXIT_OK" ;;
     *)              usage >&2; die "unknown option: $1" ;;
   esac
 done
+
+# A report that took --notes would leave a human believing it wrote the file.
+# Only the options that name the target mean anything to it.
+if [[ $CHECK_ONLY == true && ${#RELEASE_OPTIONS[@]} -gt 0 ]]; then
+  die "--check accepts only --trunk, --to and --since, not ${RELEASE_OPTIONS[0]}"
+fi
 
 case "$FORCE_LEVEL" in
   "" | major | minor | patch) ;;
@@ -275,13 +289,80 @@ verify_ref() {
 # for stale-tags, the trunk for off-trunk, the tag for tag-taken. target is the
 # ref that would have been tagged, for the refusals naming both ends.
 refusal() {
+  stop "$EXIT_REFUSED" "$(refusal_reason "$@")"
+}
+
+# refusal_reason <name> [detail] [target] — the words of a refusal, for the
+# setup report to list a check the way a release would refuse it.
+refusal_reason() {
   local detail="${2:-}" target="${3:-}"
   case "$1" in
-    shallow)    stop "$EXIT_REFUSED" "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
-    stale-tags) stop "$EXIT_REFUSED" "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
-    off-trunk)  stop "$EXIT_REFUSED" "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
-    tag-taken)  stop "$EXIT_REFUSED" "tag ${detail} already exists locally" ;;
-    *)          stop "$EXIT_REFUSED" "refused: $1" ;;
+    shallow)    printf '%s' "shallow clone: the version tags behind the cut are unreachable — fetch the full history (git fetch --unshallow, or fetch-depth: 0 in CI)" ;;
+    stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
+    off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
+    tag-taken)  printf '%s' "tag ${detail} already exists locally" ;;
+    *)          printf '%s' "refused: $1" ;;
+  esac
+}
+
+# The guards as checks, so a release stops on the first one that fails and the
+# setup report lists them all. Each returns 0 when it holds, and 1 with the
+# reason in CHECK_FAILURE (fail_check, below) when it does not.
+
+check_not_shallow() {
+  # Before the fetch, because the fetch cannot repair it: the tag refs come
+  # back, the commits they name stay behind the cut, and `git describe` reaches
+  # none of them. Only `true` refuses, so a git too old to know the option
+  # (< 2.15) leaves the release alone rather than claiming a shallow clone.
+  [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] \
+    || fail_check "$(refusal_reason shallow)"
+}
+
+# The tags are what the baseline is read from, so a fetch that fails is not a
+# detail to warn about: it leaves the stale local tags in place, and a version
+# computed from them can sit below a release origin already holds. No flag
+# escapes it; the README's "Tags that can't be fetched" says why --local and
+# --dry-run are no exception.
+#
+# Captured rather than --quiet, because the reasons differ too much to guess
+# at: an unreachable origin says so itself, while a local tag that disagrees
+# with origin's is a "! [rejected] ... would clobber existing tag" that
+# --quiet swallows whole, leaving a refusal with nothing behind it. Held back
+# until the fetch fails, so an ordinary run still prints none of it.
+check_tags_fetched() {
+  local fetch_output=""
+  if ! fetch_output=$(git fetch --tags origin 2>&1); then
+    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
+    fail_check "$(refusal_reason stale-tags origin)"
+  fi
+}
+
+# origin was reachable a moment ago, when the tags came from it. So a fetch that
+# fails here is origin holding no branch by that name: a trunk the caller got
+# wrong, which verify_ref already treats as EXIT_ERROR.
+check_trunk_fetched() {
+  local fetch_output=""
+  if ! fetch_output=$(git fetch origin "$TRUNK" 2>&1); then
+    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
+    fail_check "cannot fetch the trunk '${TRUNK}' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>"
+  fi
+}
+
+# check_trunk_contains <target ref> — returns 0 when the trunk just fetched
+# carries <target>, 1 when it does not, and 2 when git could not tell. Told
+# apart rather than folded together: `--is-ancestor` answers 1 for a commit the
+# trunk does not contain and something else when it could not tell, and
+# reporting the second as the first would send its author off to rebase a
+# branch that is already where it belongs.
+check_trunk_contains() {
+  local target="$1" contained=0
+  git merge-base --is-ancestor "${target}^{commit}" FETCH_HEAD || contained=$?
+  case "$contained" in
+    0) return 0 ;;
+    1) CHECK_FAILURE="$(refusal_reason off-trunk "$TRUNK" "${target} ($(git rev-parse --short "${target}^{commit}"))")"
+       return 1 ;;
+    *) CHECK_FAILURE="cannot tell whether origin/${TRUNK} contains ${target}: git merge-base exited ${contained}"
+       return 2 ;;
   esac
 }
 
@@ -336,25 +417,12 @@ resolve_baseline() {
   # back, the commits they name stay behind the cut, and `git describe` reaches
   # none of them. Only `true` refuses, so a git too old to know the option
   # (< 2.15) leaves the release alone rather than claiming a shallow clone.
-  [[ $(git rev-parse --is-shallow-repository 2>/dev/null) != true ]] || refusal shallow
+  check_not_shallow || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 
   note "Fetching tags from origin..."
-  # The tags are what the baseline is read from, so a fetch that fails is not a
-  # detail to warn about: it leaves the stale local tags in place, and a version
-  # computed from them can sit below a release origin already holds. No flag
-  # escapes it; the README's "Tags that can't be fetched" says why --local and
-  # --dry-run are no exception.
-  #
-  # Captured rather than --quiet, because the reasons differ too much to guess
-  # at: an unreachable origin says so itself, while a local tag that disagrees
-  # with origin's is a "! [rejected] ... would clobber existing tag" that
-  # --quiet swallows whole, leaving a refusal with nothing behind it. Held back
-  # until the fetch fails, so an ordinary run still prints none of it.
-  local fetch_output=""
-  if ! fetch_output=$(git fetch --tags origin 2>&1); then
-    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
-    refusal stale-tags origin
-  fi
+  # The tags are what the baseline is read from, so a fetch that fails is a
+  # refusal (see check_tags_fetched): it leaves the stale local tags in place.
+  check_tags_fetched || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 
   if [[ -n $since ]]; then
     verify_ref "$since"
@@ -393,35 +461,21 @@ verify_trunk_contains() {
   local target="$1"
 
   note "Fetching the trunk '${TRUNK}' from origin..."
-  # An error, not a refusal. origin was reachable a moment ago: resolve_baseline
-  # fetched the tags from it, and refused the release when it could not. So a
-  # fetch that fails here is origin holding no branch by that name — a trunk the
-  # caller got wrong, which verify_ref already treats as EXIT_ERROR.
-  local fetch_output=""
-  if ! fetch_output=$(git fetch origin "$TRUNK" 2>&1); then
-    [[ -z $fetch_output ]] || printf '%s\n' "$fetch_output" >&2
-    die "cannot fetch the trunk '${TRUNK}' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>"
-  fi
+  check_trunk_fetched || die "$CHECK_FAILURE"
 
-  # Told apart rather than folded together: `--is-ancestor` answers 1 for a
-  # commit the trunk does not contain and something else when it could not
-  # tell, and reporting the second as the first would send its author off to
-  # rebase a branch that is already where it belongs.
   local contained=0
-  git merge-base --is-ancestor "${target}^{commit}" FETCH_HEAD || contained=$?
+  check_trunk_contains "$target" || contained=$?
   case "$contained" in
     0) return 0 ;;
     1) ;;
-    *) die "cannot tell whether origin/${TRUNK} contains ${target}: git merge-base exited ${contained}" ;;
+    *) die "$CHECK_FAILURE" ;;
   esac
 
-  local where
-  where="${target} ($(git rev-parse --short "${target}^{commit}"))"
   if [[ $DRY_RUN == true ]]; then
-    warn "origin/${TRUNK} does not contain ${where}: a real run would refuse to tag there"
+    warn "origin/${TRUNK} does not contain ${target} ($(git rev-parse --short "${target}^{commit}")): a real run would refuse to tag there"
     return 0
   fi
-  refusal off-trunk "$TRUNK" "$where"
+  stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 }
 
 # ----------------------------------------------------- half-published release
@@ -448,7 +502,8 @@ RESUME_TAG="" # the half-published tag being resumed, empty on an ordinary run
 # for, or nothing when the target carries no such tag. A global rather than
 # something printed, so the two questions it cannot get an answer to can end
 # the run: `exit` inside a command substitution would end the subshell alone,
-# and the caller would carry on with the code lost.
+# and the caller would carry on with the code lost. They return 1 with the
+# reason in CHECK_FAILURE, and the caller decides what that ends.
 resolve_resume() {
   local target="$1" tag=""
   RESUME_TAG=""
@@ -473,7 +528,7 @@ resolve_resume() {
   case "$held" in
     0) ;;
     2) return 0 ;;
-    *) die "cannot tell whether origin holds ${tag}: git ls-remote exited ${held}" ;;
+    *) fail_check "cannot tell whether origin holds ${tag}: git ls-remote exited ${held}"; return ;;
   esac
 
   # `gh release view` exits non-zero both for a tag with no release and for gh
@@ -486,7 +541,7 @@ resolve_resume() {
     return 0
   fi
   gh repo view "$REPO" --json nameWithOwner >/dev/null \
-    || die "cannot tell whether ${tag} has a GitHub release: gh's own reason is above"
+    || { fail_check "cannot tell whether ${tag} has a GitHub release: gh's own reason is above"; return; }
 
   RESUME_TAG="$tag"
 }
@@ -549,24 +604,173 @@ preflight() {
     "$check" || die "$CHECK_FAILURE"
   done
 }
-preflight
 
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# Only a warning in a release, and listed as one in the setup report: neither
+# stops the release, so neither is a failure.
+
 # A release is cut from the trunk, or from a `release/*` branch off it. `HEAD`
 # is a detached checkout, which is how CI checks a chosen commit out.
-case "$CURRENT_BRANCH" in
-  "$TRUNK" | release/* | HEAD) ;;
-  *) warn "you are on '${CURRENT_BRANCH}', not '${TRUNK}' or a 'release/*' branch" ;;
-esac
+check_branch() {
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  case "$CURRENT_BRANCH" in
+    "$TRUNK" | release/* | HEAD) ;;
+    *) fail_check "you are on '${CURRENT_BRANCH}', not '${TRUNK}' or a 'release/*' branch" ;;
+  esac
+}
+
+# Only the work done on HEAD can be left out of the tag.
+check_tree_clean() {
+  [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]] || return 0
+  [[ -z $(git status --porcelain) ]] \
+    || fail_check "the working tree is not clean; the tag will only contain committed work"
+}
+
+# ---------------------------------------------------------------- setup report
+#
+# `--check` runs every check above and every guard against the target a release
+# would use, and lists them all, so a human sees what would stop a release at
+# once rather than the first thing. It decides no version and writes no file;
+# the one thing it shares with a release is the fetch of the tags.
+#
+# A failing check is what a release would stop on, and ends the report on
+# EXIT_REFUSED. A check whose input a failing one withheld is skipped, and what
+# the report cannot even start on (no git, no gh, a ref that does not exist) is
+# an error, as it is for a release.
+
+REPORT_STATUS=() # ok, warn, FAIL, skip or info
+REPORT_LABEL=()
+REPORT_DETAIL=() # the reason and the fix, one per line
+REPORT_FAILURES=0
+REPORT_OK=false  # whether the check listed last held
+
+# report <status> <label> [detail]
+report() {
+  REPORT_STATUS+=("$1")
+  REPORT_LABEL+=("$2")
+  REPORT_DETAIL+=("${3:-}")
+  [[ $1 != FAIL ]] || REPORT_FAILURES=$((REPORT_FAILURES + 1))
+}
+
+# report_check <fail|warn> <label> <fix> <check> [args...] — run one check and
+# list its result. The reason is the check's own, and the fix is said apart for
+# the checks whose reason does not carry one.
+report_check() {
+  local level="$1" label="$2" fix="$3"; shift 3
+  CHECK_FAILURE=""
+  if "$@"; then
+    REPORT_OK=true
+    report ok "$label"
+    return 0
+  fi
+  local status="FAIL"
+  REPORT_OK=false
+  if [[ $level == warn ]]; then status="warn"; REPORT_OK=true; fi
+  report "$status" "$label" "${CHECK_FAILURE}${fix:+$'\n'fix: ${fix}}"
+}
+
+# report_skip <label> <what it needed>
+report_skip() {
+  REPORT_OK=false
+  report skip "$1" "needs ${2}"
+}
+
+print_report() {
+  step "Setup report"
+  local i colour line
+  for i in "${!REPORT_STATUS[@]}"; do
+    case "${REPORT_STATUS[$i]}" in
+      ok)         colour="$GREEN" ;;
+      FAIL)       colour="$RED" ;;
+      warn)       colour="$YELLOW" ;;
+      *)          colour="$DIM" ;;
+    esac
+    printf '%s%-4s%s  %s\n' "$colour" "${REPORT_STATUS[$i]}" "$RESET" "${REPORT_LABEL[$i]}"
+    if [[ -n ${REPORT_DETAIL[$i]} ]]; then
+      while IFS= read -r line; do
+        printf '        %s\n' "$line"
+      done <<<"${REPORT_DETAIL[$i]}"
+    fi
+  done
+  printf '\n'
+}
+
+run_setup_report() {
+  # Nothing to evaluate with: this is not a report but a run that cannot start.
+  check_git_installed || die "$CHECK_FAILURE"
+  check_gh_installed || die "$CHECK_FAILURE"
+
+  local in_repo=false repository=false trunk=false
+  report_check fail "bash 4 or later" "install bash 4 or later and run the script with it" check_bash_version
+  report ok "git installed"
+  report ok "gh installed"
+  report_check fail "inside a git repository" "run it from inside the checkout" check_inside_work_tree
+  in_repo=$REPORT_OK
+  report_check fail "gh is logged in" "" check_gh_logged_in
+  if [[ $REPORT_OK == true ]]; then
+    report_check fail "the GitHub repository resolves" "check that the checkout's remote is a GitHub repository gh can see" check_repository
+    repository=$REPORT_OK
+  else
+    report_skip "the GitHub repository resolves" "gh logged in"
+  fi
+  if [[ -n $TRUNK || $repository == true ]]; then
+    report_check fail "the trunk is known" "" check_trunk
+    trunk=$REPORT_OK
+  else
+    report_skip "the trunk is known" "the GitHub repository"
+  fi
+
+  if [[ $in_repo != true || $trunk != true ]]; then
+    report_skip "the release guards" "a git repository and a trunk"
+    return
+  fi
+
+  [[ -n $TO_REF ]] || TO_REF="HEAD"
+  verify_ref "$TO_REF"
+  [[ -z $SINCE_REF ]] || verify_ref "$SINCE_REF"
+
+  report_check warn "on the trunk or a release branch" "" check_branch
+  report_check warn "the working tree is clean" "" check_tree_clean
+  report_check fail "not a shallow clone" "" check_not_shallow
+  report_check fail "the version tags can be fetched from origin" "" check_tags_fetched
+  report_check fail "the trunk '${TRUNK}' is reachable on origin" "" check_trunk_fetched
+  if [[ $REPORT_OK == true ]]; then
+    report_check fail "the trunk carries ${TO_REF}" "" check_trunk_contains "$TO_REF"
+  else
+    report_skip "the trunk carries ${TO_REF}" "the trunk fetched"
+  fi
+
+  if [[ $repository != true ]]; then
+    report_skip "half-published release" "the GitHub repository"
+  elif resolve_resume "$TO_REF"; then
+    if [[ -n $RESUME_TAG ]]; then
+      # A state, not a failure: the next run finishes the release.
+      report info "half-published release" "${RESUME_TAG} is on origin with no GitHub release: a release would resume it at step 4"
+    else
+      report ok "no half-published release"
+    fi
+  else
+    report FAIL "half-published release" "$CHECK_FAILURE"
+  fi
+}
+
+if [[ $CHECK_ONLY == true ]]; then
+  run_setup_report
+  print_report
+  if (( REPORT_FAILURES > 0 )); then
+    stop "$EXIT_REFUSED" "${REPORT_FAILURES} check(s) failed: a release would refuse"
+  fi
+  info "No check a release would refuse on fails."
+  exit "$EXIT_OK"
+fi
+
+preflight
+
+check_branch || warn "$CHECK_FAILURE"
 
 [[ -n $TO_REF ]] || TO_REF="HEAD"
 verify_ref "$TO_REF"
 
-if [[ $(git rev-parse "$TO_REF") == $(git rev-parse HEAD) ]]; then
-  if [[ -n $(git status --porcelain) ]]; then
-    warn "the working tree is not clean; the tag will only contain committed work"
-  fi
-fi
+check_tree_clean || warn "$CHECK_FAILURE"
 
 # ------------------------------------------------------------ step 1: version
 
@@ -584,7 +788,7 @@ verify_trunk_contains "$TO_REF"
 
 # A half-published release on the target ends the version computation before it
 # starts: the version is the tag's, and the run has only step 4 left to do.
-resolve_resume "$TO_REF"
+resolve_resume "$TO_REF" || die "$CHECK_FAILURE"
 RESUMING=false
 
 if [[ -n $RESUME_TAG ]]; then
