@@ -24,14 +24,13 @@ setup() {
 @test "--changelog creates the file and its folders, under a dated heading" {
   local changelog="${BATS_TEST_TMPDIR}/docs/releases/CHANGELOG.md"
 
-  run_release --dry-run --changelog "$changelog"
+  run_release --dry-run --changelog "$changelog" --notes "${BATS_TEST_TMPDIR}/notes.md"
 
   assert_success
   assert_line "Changelog updated: ${changelog}"
   normalise_changelog_dates "$changelog"
-  # Today --changelog writes the heading without the notes (#36): pinned until
-  # it is fixed.
-  assert_equal "$(cat "$changelog")" "$(printf '# Changelog\n\n## v1.1.0 (<date>)\n')"
+  assert_equal "$(cat "$changelog")" \
+    "$(printf '# Changelog\n\n## v1.1.0 (<date>)\n\n%s\n' "$(cat "${BATS_TEST_TMPDIR}/notes.md")")"
 }
 
 @test "--changelog puts the new release on top of the previous ones" {
@@ -43,7 +42,7 @@ setup() {
   assert_success
   normalise_changelog_dates "$changelog"
   assert_equal "$(cat "$changelog")" \
-    "$(printf '# Changelog\n\n## v1.1.0 (<date>)\n\n## v1.0.0 (<date>)\n\n### Features\n\n- An older feature\n')"
+    "$(printf '# Changelog\n\n## v1.1.0 (<date>)\n\n### Features\n\n- Export the orders as CSV (#1)\n\n## v1.0.0 (<date>)\n\n### Features\n\n- An older feature\n')"
 }
 
 @test "--help prints the usage and exits" {
