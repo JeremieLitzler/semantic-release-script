@@ -108,6 +108,8 @@ setup() {
   assert_line "  1  error: bad usage, a gate with no terminal, a missing tool, a failed push"
   assert_line "  2  nothing to release in the commit range"
   assert_line "  3  refused by a guard"
+  assert_line "     With --check, 0 and 3 say no check a release would refuse on failed, or one did."
+  assert_line --partial "--check           Print the setup report instead of releasing"
 }
 
 @test "--check exits 0 when no check a release would refuse on fails, warnings allowed" {
