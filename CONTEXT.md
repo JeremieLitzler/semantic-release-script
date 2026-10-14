@@ -31,7 +31,7 @@ The step from the baseline to the next version: major, minor or patch, decided b
 _Avoid_: increment, level (except when naming the `--level` option)
 
 **Non-monotonic version**:
-A computed next version that is not higher than every version tag already in the repository. On a single trunk it can only come from a baseline older than the latest release.
+A computed next version that is not higher than every version tag already in the repository. On a single trunk it can only come from a baseline older than the latest release, which is why the guard weighs the baseline: a release is refused when the baseline is not the highest version tag, and the version tags the target cannot reach are listed.
 _Avoid_: version regression, downgrade
 
 ### Branch topology
