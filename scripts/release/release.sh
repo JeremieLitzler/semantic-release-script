@@ -1137,6 +1137,7 @@ if [[ -n $CHANGELOG_OUT ]]; then
   {
     printf '# Changelog\n\n'
     printf '## %s (%s)\n\n' "$NEW_TAG" "$(date +%Y-%m-%d)"
+    cat "$NOTES_FILE"
     if [[ -f $CHANGELOG_OUT ]]; then
       tail -n +2 "$CHANGELOG_OUT" | sed '1{/^$/d;}'
     fi

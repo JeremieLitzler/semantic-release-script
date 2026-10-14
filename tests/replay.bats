@@ -46,8 +46,6 @@ setup() {
   assert_golden "$(published_notes_file v0.0.1)" replay-v0.0.1-notes.md
   assert_golden "$(published_notes_file v0.1.0)" replay-v0.1.0-notes.md
   assert_golden "$(published_notes_file v1.0.0)" replay-v1.0.0-notes.md
-  # Today --changelog writes the headings without the notes (#36): pinned until
-  # it is fixed.
   normalise_changelog_dates "$changelog"
   assert_golden "$changelog" replay-changelog.md
 }
