@@ -252,6 +252,22 @@ setup() {
   refute_output --partial "Version         :"
 }
 
+@test "a version below a tag already in the repository is refused" {
+  tag_version v1.0.0
+  commit_change "feat: export the orders as CSV"
+  tag_version v2.0.0
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  given_release v1.0.0
+  given_release v2.0.0
+
+  run_release --dry-run --since v1.0.0
+
+  assert_failure 3
+  assert_output --partial "v1.1.0 is not higher than v2.0.0"
+  refute_remote_tag v1.1.0
+}
+
 @test "a version whose tag already exists is refused" {
   tag_version v1.0.0
   commit_change "fix: keep the cart total in sync"

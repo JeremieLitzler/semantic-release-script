@@ -19,5 +19,9 @@ ok    the trunk 'main' is reachable on origin
 ok    the trunk carries HEAD
 skip  half-published release
         needs the GitHub repository
+skip  the next tag is free
+        needs the shallow clone and version tag checks to hold
+skip  the next version is higher than every version tag
+        needs the shallow clone and version tag checks to hold
 
 x 2 check(s) failed: a release would refuse
