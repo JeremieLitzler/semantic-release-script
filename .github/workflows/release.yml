@@ -25,12 +25,13 @@ on:
 #   1. Find the commit of the latest version tag:
 #        git rev-parse 'vX.Y.Z^{commit}'
 #   2. Change RELEASE_SCRIPT_REF below to that SHA, and the tag named in the
-#      comment beside it.
+#      comment above it.
 #   3. Merge that change: the next push to main previews the pending release
 #      with the new script before anything is published.
 # Pin the SHA, not the tag name: a tag can be moved, a SHA cannot.
 env:
-  RELEASE_SCRIPT_REF: 4e98ffa1646e8936053fd107df9552d91ada62da # v0.4.0
+  # v0.4.0
+  RELEASE_SCRIPT_REF: 4e98ffa1646e8936053fd107df9552d91ada62da
 
 permissions:
   contents: read
