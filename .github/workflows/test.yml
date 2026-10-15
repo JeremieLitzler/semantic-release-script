@@ -11,14 +11,11 @@ permissions:
 
 jobs:
   fixture-suite:
-    # ubuntu-latest moves to Ubuntu 26.04 from 2026-10-19 (actions/runner-images
-    # #14748). The explicit 26.04 entry proves the suite there first; drop the
-    # entry once the runner is decided.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, ubuntu-26.04]
-    runs-on: ${{ matrix.os }}
+    # Pinned: ubuntu-latest moves to Ubuntu 26.04 from 2026-10-19
+    # (actions/runner-images#14748), and the suite was proven green there first.
+    # A pin keeps the image from changing under the suite, and the migration
+    # notice off the run annotations.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
