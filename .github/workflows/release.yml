@@ -156,6 +156,13 @@ jobs:
             -o "$RUNNER_TEMP/release.sh"
           chmod +x "$RUNNER_TEMP/release.sh"
 
+      # An annotated tag needs a committer, and a runner has none. The tag is
+      # the workflow's, not a person's.
+      - name: Set the git identity of the tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Cut the release
         id: release
         run: |
