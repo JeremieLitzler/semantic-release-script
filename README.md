@@ -33,6 +33,17 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
 | `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to` and `--since`. |
 
+### Cutting a release
+
+`.github/workflows/release.yml` cuts this repository's own releases.
+
+- **Preview**: a push to `main`, or a manual dispatch left on `preview`, dry-runs the release and writes the pending version and notes to the job summary. Nothing is written.
+- **Publish**: push a `release/*` branch cut from `main`, or dispatch the workflow with `publish` from `main` or a `release/*` branch. The tag and the GitHub release are created, and a push-triggered run then deletes the `release/*` branch.
+
+Publish refuses a `release/*` ref that `main` does not contain, deletes an orphaned remote tag (no GitHub release carries it) left on that commit by a failed run so the re-push re-cuts the release, and does not start until the bats suite is green for that commit.
+
+The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. To move the pin, set `RELEASE_SCRIPT_REF` to the upstream commit or tag to run, and merge that change: the next push to `main` previews with it.
+
 ### Checking your setup
 
 ```bash
