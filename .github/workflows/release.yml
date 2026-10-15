@@ -23,17 +23,14 @@ on:
 # To move the pin:
 #   1. Pick the upstream commit (or v* tag) to run, and read its release.sh.
 #   2. Change RELEASE_SCRIPT_REF below to it.
-#   3. Open a pull request: the preview job on main shows the effect of the
-#      new script on the pending release before anything is published.
+#   3. Merge that change: the next push to main previews the pending release
+#      with the new script before anything is published.
+#   Prefer a commit SHA: a tag can be moved, a SHA cannot.
 env:
   RELEASE_SCRIPT_REF: 57b3a06abb59a15029a4b3812bd4c14a7795b989
 
 permissions:
-  contents: write
-
-concurrency:
-  group: release
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   preview:
@@ -41,6 +38,9 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && inputs.action == 'preview')
     runs-on: ubuntu-26.04
+    concurrency:
+      group: release-preview
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,6 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           submodules: true
       - name: Run the bats suites
         run: tests/libs/bats-core/bin/bats tests/
@@ -105,11 +106,19 @@ jobs:
   publish:
     needs: [guard, test]
     runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    # A queued publish is never replaced by a later one.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The commit the test job validated, not whatever the ref moved to.
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Refuse a release/* ref that main does not contain
@@ -125,7 +134,16 @@ jobs:
         run: |
           git fetch --tags --force origin
           for tag in $(git tag --points-at HEAD --list 'v*'); do
-            if ! gh release view "$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" >"$RUNNER_TEMP/rv.out" 2>&1; then
+              continue
+            fi
+            # Only "not found" proves an orphan; any other failure is an API
+            # or auth problem, and deleting on it could strand a real release.
+            if ! grep -q "release not found" "$RUNNER_TEMP/rv.out"; then
+              echo "::error::could not tell whether $tag has a release: $(cat "$RUNNER_TEMP/rv.out")"
+              exit 1
+            fi
+            if true; then
               echo "Deleting orphaned tag $tag (no GitHub release carries it)"
               git push origin --delete "refs/tags/$tag"
               git tag -d "$tag"
@@ -141,12 +159,24 @@ jobs:
       - name: Cut the release
         id: release
         run: |
+          set +e
           "$RUNNER_TEMP/release.sh" --yes --summary "$RUNNER_TEMP/release.env"
-          cat "$RUNNER_TEMP/release.env" >>"$GITHUB_OUTPUT"
+          code=$?
+          set -e
+          if [[ $code -eq 2 ]]; then
+            echo "Nothing to release: no commit since the last version tag." >>"$GITHUB_STEP_SUMMARY"
+            echo "released=no" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ $code -eq 0 ]] || exit "$code"
+          # Only the documented keys, one line each, reach the outputs.
+          grep -E '^(tag|version|bump|baseline|released)=[A-Za-z0-9.+-]*$' "$RUNNER_TEMP/release.env" >>"$GITHUB_OUTPUT"
 
       - name: Report
         if: steps.release.outputs.released == 'yes'
-        run: echo "Published ${{ steps.release.outputs.tag }}" >>"$GITHUB_STEP_SUMMARY"
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: echo "Published $TAG" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Delete the release branch
         if: >-
