@@ -11,13 +11,20 @@ permissions:
 
 jobs:
   fixture-suite:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moves to Ubuntu 26.04 from 2026-10-19 (actions/runner-images
+    # #14748). The explicit 26.04 entry proves the suite there first; drop the
+    # entry once the runner is decided.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
 
-      # jq, the only other dev dependency, is preinstalled on ubuntu-latest.
+      # jq, the only other dev dependency, is preinstalled on the runner image.
       # tests/live.bats shows as skipped: the live suite never runs in CI.
       - name: Run the bats suites
         run: tests/libs/bats-core/bin/bats tests/
