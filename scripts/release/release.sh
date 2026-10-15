@@ -287,8 +287,8 @@ verify_ref() {
 #
 # detail is whatever that refusal is about, and the name says which: the remote
 # for stale-tags, the trunk for off-trunk, the tag for tag-taken, the baseline's
-# tag for baseline-not-highest and baseline-gone. target is the ref that would have been tagged,
-# for the refusals naming both ends, and the highest version tag for the one
+# tag for baseline-not-highest and baseline-gone. target is the ref that would
+# have been tagged, for the refusals naming both ends, and the highest version tag for the one
 # that weighs the baseline against it.
 refusal() {
   stop "$EXIT_REFUSED" "$(refusal_reason "$@")"
@@ -304,7 +304,7 @@ refusal_reason() {
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  printf '%s' "tag ${detail} already exists locally — it is the release already cut there: name a later target with --to or an earlier baseline with --since, or delete the tag if it is stale" ;;
     baseline-gone)
-      printf '%s' "the baseline ${detail} is no longer on origin: it was deleted there, and the fetch only ever adds tags, so the local copy survives — the commits it released would drop out of the next release's notes. Restore it on origin (git push origin ${detail}), or delete the local tag (git tag -d ${detail}) if the release was withdrawn" ;;
+      printf '%s' "the baseline ${detail} is not on origin: it was deleted there (the fetch only ever adds tags, so the local copy survives) or never pushed (a --local tag), and the commits it released would drop out of the next release's notes. Push it (git push origin ${detail}), or delete the local tag (git tag -d ${detail}) if the release was withdrawn" ;;
     baseline-not-highest)
       printf '%s' "the baseline ${detail} is not the highest version tag in the repository, ${target}: the next version would not be above every release already cut"
       if [[ -n $stranded ]]; then
@@ -747,17 +747,21 @@ version_tags() {
 # a release nobody can see. Not --prune-tags, which does nothing without
 # --prune and with it deletes the local-only tag --local creates. Told apart
 # the way resolve_resume tells it: --exit-code answers 2 for a ref the remote
-# does not hold, and anything else is the lookup failing.
+# does not hold, and anything else is the lookup failing. A tag --local wrote
+# and never pushed is refused the same way: git cannot tell it from a deleted
+# one, and the next release has to be cut from a tag origin holds.
 check_baseline_on_origin() {
   [[ $BASELINE_REF =~ $VERSION_TAG_RE ]] || return 0
   git rev-parse --verify --quiet "refs/tags/${BASELINE_REF}" >/dev/null || return 0
 
-  local held=0
-  git ls-remote --exit-code --tags origin "refs/tags/${BASELINE_REF}" >/dev/null 2>&1 || held=$?
+  local held=0 lookup_output=""
+  lookup_output=$(git ls-remote --exit-code --tags origin "refs/tags/${BASELINE_REF}" 2>&1) || held=$?
   case "$held" in
     0) ;;
     2) fail_check "$(refusal_reason baseline-gone "$BASELINE_REF")" ;;
-    *) fail_check "cannot tell whether origin holds ${BASELINE_REF}: git ls-remote exited ${held}" ;;
+    *) [[ -z $lookup_output ]] || printf '%s
+' "$lookup_output" >&2
+       fail_check "cannot tell whether origin holds ${BASELINE_REF}: git ls-remote exited ${held}" ;;
   esac
 }
 

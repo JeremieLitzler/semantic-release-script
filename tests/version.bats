@@ -421,7 +421,24 @@ given_stranded_tag() {
   run_release
 
   assert_failure 3
-  assert_output --partial "the baseline v1.0.0 is no longer on origin"
+  assert_output --partial "the baseline v1.0.0 is not on origin"
   refute_local_tag v1.1.0
   refute_remote_tag v1.1.0
+}
+
+@test "a baseline tag only --local wrote is refused until it is pushed" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  commit_change "feat: export the orders as CSV"
+  tag_version v1.1.0
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  git -C "$ORIGIN" tag -d v1.1.0
+
+  run_release
+
+  assert_failure 3
+  assert_output --partial "the baseline v1.1.0 is not on origin"
+  assert_output --partial "never pushed"
 }
