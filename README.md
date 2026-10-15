@@ -53,6 +53,8 @@ warn  on the trunk or a release branch
 
 A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release would refuse or stop), a `skip` (a failing check withheld what it needs) or an `info`. A half-published release on the target is an `info`: a state the next run finishes, not a failure. The report weighs each guard of a release against the target, after the same fetch: not a shallow clone, the version tags fetched, the trunk carrying the target (the stranded tag), the next tag free, the baseline tag still held by `origin`, and the baseline being the highest version tag already there, listing the stranded tags it finds. The last two are weighed on the version a release would compute, without printing it; they are `info` where there is no version to weigh (a resume, or no commit in the range) and `skip` where the clone or the tags are not whole.
 
+The setups it holds to and the ones it refuses, with the decision flow the report follows, are mapped in [docs/supported-setups.md](docs/supported-setups.md).
+
 It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
 
 ### Exit codes
