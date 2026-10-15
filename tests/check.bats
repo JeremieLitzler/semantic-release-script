@@ -259,5 +259,5 @@ setup() {
 
   assert_failure 3
   assert_output --partial "FAIL  the baseline is still on origin"
-  assert_output --partial "the baseline v1.0.0 is no longer on origin"
+  assert_output --partial "the baseline v1.0.0 is not on origin"
 }
