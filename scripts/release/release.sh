@@ -286,8 +286,10 @@ verify_ref() {
 # arm.
 #
 # detail is whatever that refusal is about, and the name says which: the remote
-# for stale-tags, the trunk for off-trunk, the tag for tag-taken. target is the
-# ref that would have been tagged, for the refusals naming both ends.
+# for stale-tags, the trunk for off-trunk, the tag for tag-taken, the baseline's
+# tag for baseline-not-highest. target is the ref that would have been tagged,
+# for the refusals naming both ends, and the highest version tag for the one
+# that weighs the baseline against it.
 refusal() {
   stop "$EXIT_REFUSED" "$(refusal_reason "$@")"
 }
@@ -301,10 +303,10 @@ refusal_reason() {
     stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  printf '%s' "tag ${detail} already exists locally — it is the release already cut there: name a later target with --to or an earlier baseline with --since, or delete the tag if it is stale" ;;
-    baseline-behind)
+    baseline-not-highest)
       printf '%s' "the baseline ${detail} is not the highest version tag in the repository, ${target}: the next version would not be above every release already cut"
       if [[ -n $stranded ]]; then
-        printf '%s' " — ${stranded} sit on commits the target cannot reach (stranded tags). Find each one's twin on the trunk, the commit with the same tree (compare git rev-parse <tag>^{tree} with git log --format='%h %T'), and re-tag it there under the same name"
+        printf '%s' " — above it, ${stranded} sit on commits the target cannot reach (stranded tags). Find each one's twin, the trunk commit with the same tree: git rev-parse <tag>^{tree} against git log --format='%h %T'"
       else
         printf '%s' " — every version tag is reachable, so check that --since names a release no older than ${target}"
       fi ;;
@@ -726,6 +728,15 @@ check_tag_free() {
   fi
 }
 
+# version_tags -> every version tag in the repository, highest first. The glob
+# alone also matches a prerelease such as v1.0.0-rc1, which is no version tag
+# and which `--sort=-v:refname` ranks above v1.0.0, so the name is held to
+# vMAJOR.MINOR.PATCH here.
+version_tags() {
+  git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true
+}
+
 # check_baseline_highest — the baseline is the highest version tag in the
 # repository. On a single trunk, the next version can only fall at or below
 # a release already cut when the baseline is older than the latest one: the
@@ -734,19 +745,29 @@ check_tag_free() {
 #
 # CURRENT_VERSION is the baseline's version, so a run with no baseline and
 # tags somewhere else refuses as well: 0.0.0 is below every one of them.
+#
+# Only the tags above the baseline are listed: a stranded tag below it is no
+# reason for this refusal. A tag is stranded when git answers 1 to whether the
+# target carries it; any other answer is git failing to tell, which lists
+# nothing rather than a tag that may be fine.
 check_baseline_highest() {
   local highest
-  highest=$(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname | head -n 1)
+  highest=$(version_tags | head -n 1)
   [[ -n $highest ]] || return 0
   [[ ${highest#v} != "$CURRENT_VERSION" ]] || return 0
 
-  local tag stranded=""
+  local tag reachable stranded=""
   while IFS= read -r tag; do
-    [[ -n $tag ]] || continue
-    git merge-base --is-ancestor "${tag}^{commit}" "${TO_REF}^{commit}" 2>/dev/null       || stranded+="${stranded:+, }${tag} ($(git rev-parse --short "${tag}^{commit}"))"
-  done < <(git tag --list "$VERSION_TAG_GLOB" --sort=-v:refname)
+    [[ $(printf '%s\n%s\n' "${tag#v}" "$CURRENT_VERSION" | sort -V | tail -n 1) != "$CURRENT_VERSION" ]] \
+      || break
+    reachable=0
+    git merge-base --is-ancestor "${tag}^{commit}" "${TO_REF}^{commit}" 2>/dev/null \
+      || reachable=$?
+    [[ $reachable -ne 1 ]] \
+      || stranded+="${stranded:+, }${tag} ($(git rev-parse --short "${tag}^{commit}"))"
+  done < <(version_tags)
 
-  fail_check "$(refusal_reason baseline-behind "${BASELINE_REF:-0.0.0}" "$highest" "$stranded")"
+  fail_check "$(refusal_reason baseline-not-highest "v${CURRENT_VERSION}" "$highest" "$stranded")"
 }
 
 # ---------------------------------------------------------------- setup report

@@ -271,7 +271,7 @@ setup() {
 # A version tag written on a branch the trunk never took: stranded, so the
 # baseline resolved from the trunk is older than the latest release.
 given_stranded_tag() {
-  git switch -q -c retired-branch
+  git switch -q -c "retired-$1"
   commit_change "fix: ship the hotfix from the retired branch"
   tag_version "$1"
   push_tag_fixture "$1"
@@ -295,7 +295,7 @@ given_stranded_tag() {
   assert_output --partial "twin"
 }
 
-@test "a feat on v0.29.0 while v0.30.1 is stranded is refused, though v0.30.0 is free" {
+@test "a feat on v0.29.0 while v0.30.1 is stranded is refused, and no tag is written" {
   tag_version v0.29.0
   push_fixture
   given_release v0.29.0
@@ -303,11 +303,79 @@ given_stranded_tag() {
   commit_change "feat: export the orders as CSV"
   push_fixture
 
-  run_release --dry-run
+  run_release
 
   assert_failure 3
   assert_output --partial "the baseline v0.29.0 is not the highest version tag in the repository, v0.30.1"
-  refute_output --partial "v0.30.0"
+  # v0.30.0 is the version the feat would have been given, and nothing
+  # collides with it: the baseline guard is what stops it.
+  refute_local_tag v0.30.0
+  refute_remote_tag v0.30.0
+}
+
+@test "only the stranded tags above the baseline are named" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  given_stranded_tag v0.9.0
+  git switch -q main
+  given_stranded_tag v1.0.2
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run
+
+  assert_failure 3
+  assert_output --partial "v1.0.2 ("
+  refute_output --partial "v0.9.0 ("
+}
+
+@test "a baseline older than the latest release with every tag reachable says to check --since" {
+  tag_version v1.0.0
+  commit_change "feat: export the orders as CSV"
+  tag_version v2.0.0
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  given_release v1.0.0
+  given_release v2.0.0
+
+  run_release --dry-run --since v1.0.0
+
+  assert_failure 3
+  assert_output --partial "every version tag is reachable, so check that --since names a release no older than v2.0.0"
+  refute_output --partial "stranded tags"
+}
+
+@test "a prerelease tag is no version tag, so it does not outrank the baseline" {
+  tag_version v1.0.0-rc1
+  commit_change "fix: keep the cart total in sync"
+  tag_version v1.0.0
+  commit_change "fix: stop the login form from eating the password"
+  push_fixture
+  given_release v1.0.0
+
+  run_release --dry-run
+
+  assert_success
+  assert_line "Version         : 1.0.0 -> 1.0.1"
+}
+
+@test "a release cut from a maintenance line is refused: the highest tag is above its baseline" {
+  tag_version v1.0.0
+  git switch -q -c 1.x
+  commit_change "fix: keep the cart total in sync"
+  git switch -q main
+  commit_change "feat: export the orders as CSV"
+  tag_version v2.0.0
+  push_fixture
+  given_release v1.0.0
+  given_release v2.0.0
+  git switch -q 1.x
+
+  run_release --dry-run
+
+  assert_failure 3
+  assert_output --partial "the baseline v1.0.0 is not the highest version tag in the repository, v2.0.0"
 }
 
 @test "a stranded tag above the baseline fails the report" {

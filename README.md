@@ -169,6 +169,18 @@ fatal: couldn't find remote ref develop
 x cannot fetch the trunk 'develop' from origin: git's own reason is above — name the branch releases are cut from with --trunk <name>
 ```
 
+### A baseline that is not the latest release
+
+The next version is computed from the baseline, so it is only above every release already cut when the baseline is the highest version tag in the repository. One that is not — a stranded tag above it, which the trunk cannot reach and so `git describe` never finds, or a `--since` older than the latest release — is refused with code `3` before any tag is written, even when the version it would compute collides with no tag:
+
+```
+x the baseline v0.29.0 is not the highest version tag in the repository, v0.30.1: the next version would not be above every release already cut — above it, v0.30.1 (a1b2c3d) sit on commits the target cannot reach (stranded tags). Find each one's twin, the trunk commit with the same tree: git rev-parse <tag>^{tree} against git log --format='%h %T'
+```
+
+Only the tags above the baseline are listed. A name that is not `vMAJOR.MINOR.PATCH`, a prerelease such as `v1.0.0-rc1` included, is no version tag and takes no part in it.
+
+It is also what refuses a release cut from a maintenance line, which the script does not support: the highest version tag is on the trunk, above the line's baseline. `--since` is held to the same rule, so a replay has to go oldest first.
+
 ### Resuming a half-published release
 
 Step 3 pushes the tag and step 4 creates the GitHub release. A run that dies between the two — a cancelled job, a runner that went away, a `gh` call that failed — leaves a **half-published release**: the version tag is on `origin`, and nothing carries its notes.
