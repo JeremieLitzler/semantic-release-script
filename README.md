@@ -42,7 +42,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 
 Publish refuses a `release/*` ref that `main` does not contain, deletes an orphaned remote tag (no GitHub release carries it) left on that commit by a failed run so the re-push re-cuts the release, and does not start until the bats suite is green for that commit.
 
-The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. It points at the commit of the latest published release, with the tag named in a comment beside it. To move the pin, set `RELEASE_SCRIPT_REF` to the SHA of the latest version tag (`git rev-parse 'vX.Y.Z^{commit}'`) and update the tag in the comment, then merge that change: the next push to `main` previews with it.
+The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. It points at the commit of the latest published release, with the tag named in a comment above it. To move the pin, set `RELEASE_SCRIPT_REF` to the SHA of the latest version tag (`git rev-parse 'vX.Y.Z^{commit}'`) and update the tag in the comment, then merge that change: the next push to `main` previews with it.
 
 ### Checking your setup
 
