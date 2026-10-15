@@ -23,7 +23,7 @@ on:
 #
 # To move the pin to the latest release:
 #   1. Find the commit of the latest version tag:
-#        git rev-parse vX.Y.Z^{commit}
+#        git rev-parse 'vX.Y.Z^{commit}'
 #   2. Change RELEASE_SCRIPT_REF below to that SHA, and the tag named in the
 #      comment beside it.
 #   3. Merge that change: the next push to main previews the pending release
