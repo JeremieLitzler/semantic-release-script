@@ -18,16 +18,19 @@ on:
 
 # The release.sh this workflow runs is the one at this commit of
 # JeremieLitzler/semantic-release-script, never the copy on the commit being
-# released, so a bug in a commit cannot break its own release.
+# released, so a bug in a commit cannot break its own release. It is the
+# commit the latest published release points to.
 #
-# To move the pin:
-#   1. Pick the upstream commit (or v* tag) to run, and read its release.sh.
-#   2. Change RELEASE_SCRIPT_REF below to it.
+# To move the pin to the latest release:
+#   1. Find the commit of the latest version tag:
+#        git rev-parse vX.Y.Z^{commit}
+#   2. Change RELEASE_SCRIPT_REF below to that SHA, and the tag named in the
+#      comment beside it.
 #   3. Merge that change: the next push to main previews the pending release
 #      with the new script before anything is published.
-#   Prefer a commit SHA: a tag can be moved, a SHA cannot.
+# Pin the SHA, not the tag name: a tag can be moved, a SHA cannot.
 env:
-  RELEASE_SCRIPT_REF: 57b3a06abb59a15029a4b3812bd4c14a7795b989
+  RELEASE_SCRIPT_REF: 4e98ffa1646e8936053fd107df9552d91ada62da # v0.4.0
 
 permissions:
   contents: read
