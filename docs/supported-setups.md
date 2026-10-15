@@ -114,37 +114,23 @@ flowchart LR
 
 ## The decision flow
 
-The order the setup report weighs the checks in, one refusal per node. A failing check withholds what depends on it (`skip`) rather than stopping the report, where a release stops at the first failure.
+The order the setup report weighs the checks in, top to bottom. The first "no" is where a release stops; the report carries on and lists every result, withholding (`skip`) only the checks that depend on a failed one.
 
-```mermaid
-flowchart TD
-  S([start]) --> T{git, gh and bash 4 present?}
-  T -- no --> E1[error, exit 1: install the tool]
-  T -- yes --> R{inside a git repository?}
-  R -- no --> E2[error, exit 1: run it from the checkout]
-  R -- yes --> L{gh logged in?}
-  L -- no --> E3[error, exit 1: gh auth login]
-  L -- yes --> G{GitHub repository resolves, trunk known?}
-  G -- no --> E4[error, exit 1: check the remote, or pass --trunk]
-  G -- yes --> SH{shallow clone?}
-  SH -- yes --> R1[refused: shallow, exit 3]
-  SH -- no --> TF{version tags fetched from origin?}
-  TF -- no --> R2[refused: stale-tags, exit 3]
-  TF -- yes --> TR{trunk reachable on origin?}
-  TR -- no --> E5[error, exit 1: name the branch with --trunk]
-  TR -- yes --> TC{trunk carries the target?}
-  TC -- no --> R3[refused: off-trunk, exit 3]
-  TC -- yes --> HP{half-published release on the target?}
-  HP -- yes --> RS[resume at step 4: tag and baseline checks not weighed]
-  HP -- no --> CR{commit in the range?}
-  CR -- no --> N[nothing to release, exit 2]
-  CR -- yes --> TG{next tag free?}
-  TG -- no --> R4[refused: tag-taken, exit 3]
-  TG -- yes --> BO{baseline still on origin?}
-  BO -- no --> R5[refused: baseline-gone, exit 3]
-  BO -- yes --> BH{baseline the highest version tag?}
-  BH -- no --> R6[refused: baseline-not-highest, exit 3]
-  BH -- yes --> OK([a release would go ahead])
-```
+| # | Question | If not | Exit | Fix |
+| --- | --- | --- | --- | --- |
+| 1 | Are `git`, `gh` and bash 4 present? | error: the tool is missing | `1` | install it |
+| 2 | Inside a git repository? | error | `1` | run it from the checkout |
+| 3 | Is `gh` logged in? | error | `1` | `gh auth login` |
+| 4 | Does the GitHub repository resolve, and is the trunk known? | error | `1` | check the remote, or pass `--trunk` |
+| 5 | Is it a full clone? | refused: `shallow` | `3` | `git fetch --unshallow`, or `fetch-depth: 0` |
+| 6 | Can the version tags be fetched from `origin`? | refused: `stale-tags` | `3` | make `origin` reachable, or `git fetch --tags --force origin` |
+| 7 | Is the trunk reachable on `origin`? | error | `1` | name the branch with `--trunk` |
+| 8 | Does the trunk carry the target? | refused: `off-trunk` (a warning under `--dry-run`) | `3` | push the commits to the trunk, or rebase them onto it |
+| 9 | Is there a half-published release on the target? | not a failure: resume at step 4, and checks 11 to 13 are not weighed | | |
+| 10 | Is there a commit in the range? | nothing to release | `2` | none: the trunk is between releases |
+| 11 | Is the next tag free? | refused: `tag-taken` | `3` | name a later `--to` or an earlier `--since`, or delete a stale tag |
+| 12 | Is the baseline still on `origin`? | refused: `baseline-gone` | `3` | `git push origin <tag>`, or delete the local tag |
+| 13 | Is the baseline the highest version tag? | refused: `baseline-not-highest` | `3` | find the stranded tag's twin, or use a `--since` no older than the latest release |
+| | All yes | a release goes ahead | `0` | |
 
-On a release the guards that do not need the version (shallow, stale tags, off-trunk) run before it is computed; the last three are weighed on the version it would compute. Under `--dry-run` the off-trunk guard warns instead of refusing, since no tag is written.
+Checks 5 to 8 do not need the version, so a release runs them before computing it. Checks 11 to 13 are weighed on the version it would compute.
