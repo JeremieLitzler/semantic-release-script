@@ -21,6 +21,8 @@ skip  half-published release
         needs the GitHub repository
 skip  the next tag is free
         needs the shallow clone and version tag checks to hold
+skip  the baseline is still on origin
+        needs the shallow clone and version tag checks to hold
 skip  the baseline is the highest version tag
         needs the shallow clone and version tag checks to hold
 
