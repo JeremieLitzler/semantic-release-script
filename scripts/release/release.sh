@@ -287,7 +287,7 @@ verify_ref() {
 #
 # detail is whatever that refusal is about, and the name says which: the remote
 # for stale-tags, the trunk for off-trunk, the tag for tag-taken, the baseline's
-# tag for baseline-not-highest. target is the ref that would have been tagged,
+# tag for baseline-not-highest and baseline-gone. target is the ref that would have been tagged,
 # for the refusals naming both ends, and the highest version tag for the one
 # that weighs the baseline against it.
 refusal() {
@@ -303,6 +303,8 @@ refusal_reason() {
     stale-tags) printf '%s' "could not fetch the version tags from '${detail}': the local tags may be stale, and the baseline read from them older than the last release — git's own reason is above: make '${detail}' reachable, or let its tags win with git fetch --tags --force ${detail}" ;;
     off-trunk)  printf '%s' "origin/${detail} does not contain ${target}: the tag would sit on a commit the trunk cannot reach, where the next release's baseline can't see it — push those commits to ${detail} or rebase them onto it, and check --trunk when ${detail} is not the branch releases are cut from" ;;
     tag-taken)  printf '%s' "tag ${detail} already exists locally — it is the release already cut there: name a later target with --to or an earlier baseline with --since, or delete the tag if it is stale" ;;
+    baseline-gone)
+      printf '%s' "the baseline ${detail} is no longer on origin: it was deleted there, and the fetch only ever adds tags, so the local copy survives — the commits it released would drop out of the next release's notes. Restore it on origin (git push origin ${detail}), or delete the local tag (git tag -d ${detail}) if the release was withdrawn" ;;
     baseline-not-highest)
       printf '%s' "the baseline ${detail} is not the highest version tag in the repository, ${target}: the next version would not be above every release already cut"
       if [[ -n $stranded ]]; then
@@ -737,6 +739,28 @@ version_tags() {
     | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true
 }
 
+# check_baseline_on_origin — the baseline, when it is a version tag, is still
+# held by origin.
+#
+# `git fetch --tags` never removes anything, so a tag deleted on origin
+# survives locally and the fetch still succeeds: the baseline then resolves to
+# a release nobody can see. Not --prune-tags, which does nothing without
+# --prune and with it deletes the local-only tag --local creates. Told apart
+# the way resolve_resume tells it: --exit-code answers 2 for a ref the remote
+# does not hold, and anything else is the lookup failing.
+check_baseline_on_origin() {
+  [[ $BASELINE_REF =~ $VERSION_TAG_RE ]] || return 0
+  git rev-parse --verify --quiet "refs/tags/${BASELINE_REF}" >/dev/null || return 0
+
+  local held=0
+  git ls-remote --exit-code --tags origin "refs/tags/${BASELINE_REF}" >/dev/null 2>&1 || held=$?
+  case "$held" in
+    0) ;;
+    2) fail_check "$(refusal_reason baseline-gone "$BASELINE_REF")" ;;
+    *) fail_check "cannot tell whether origin holds ${BASELINE_REF}: git ls-remote exited ${held}" ;;
+  esac
+}
+
 # check_baseline_highest — the baseline is the highest version tag in the
 # repository. On a single trunk, the next version can only fall at or below
 # a release already cut when the baseline is older than the latest one: the
@@ -911,20 +935,24 @@ run_setup_report() {
   fi
   if [[ -n $needs ]]; then
     report_skip "the next tag is free" "$needs"
+    report_skip "the baseline is still on origin" "$needs"
     report_skip "the baseline is the highest version tag" "$needs"
   elif [[ -n $RESUME_TAG ]]; then
     report info "the next tag is free" "not weighed: a release would resume ${RESUME_TAG}, which writes no tag"
+    report info "the baseline is still on origin" "not weighed: a release would resume ${RESUME_TAG}, which computes no version"
     report info "the baseline is the highest version tag" "not weighed: a release would resume ${RESUME_TAG}, which computes no version"
   else
     select_baseline "$TO_REF" "$SINCE_REF"
     scan_commits "$TO_REF"
     if (( ${#COMMITS[@]} == 0 )); then
       report info "the next tag is free" "not weighed: no commit to release in range '${RANGE}', so a release would stop with nothing to release (exit ${EXIT_NOTHING_TO_RELEASE})"
+      report info "the baseline is still on origin" "not weighed: no commit to release in range '${RANGE}'"
       report info "the baseline is the highest version tag" "not weighed: no commit to release in range '${RANGE}'"
     else
       classify_commits
       next_version
       report_check fail "the next tag is free" "" check_tag_free
+      report_check fail "the baseline is still on origin" "" check_baseline_on_origin
       report_check fail "the baseline is the highest version tag" "" check_baseline_highest
     fi
   fi
@@ -1033,6 +1061,7 @@ else
   # A tag on the target with no release never reaches these: that one is a
   # resume, decided above.
   check_tag_free || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
+  check_baseline_on_origin || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
   check_baseline_highest || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 fi
 

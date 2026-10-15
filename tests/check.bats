@@ -246,3 +246,18 @@ setup() {
   assert_output --partial "skip  the trunk is known"
   assert_output --partial "skip  the release guards"
 }
+
+@test "a baseline tag origin no longer holds fails the report, as it refuses a release" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  commit_change "feat: export the orders as CSV"
+  push_fixture
+  git -C "$ORIGIN" tag -d v1.0.0
+
+  run_check
+
+  assert_failure 3
+  assert_output --partial "FAIL  the baseline is still on origin"
+  assert_output --partial "the baseline v1.0.0 is no longer on origin"
+}

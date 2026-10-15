@@ -16,6 +16,7 @@ ok    the trunk 'main' is reachable on origin
 ok    the trunk carries HEAD
 ok    no half-published release
 ok    the next tag is free
+ok    the baseline is still on origin
 ok    the baseline is the highest version tag
 
 No check a release would refuse on fails.

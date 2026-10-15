@@ -407,3 +407,21 @@ given_stranded_tag() {
   assert_failure
   assert_output --partial "tag v1.0.1 already exists locally"
 }
+
+# `git fetch --tags` only adds: a tag deleted on origin survives locally, and
+# the fetch still succeeds. The baseline is then a release nobody can see.
+@test "a baseline tag origin no longer holds is refused, and no tag is written" {
+  tag_version v1.0.0
+  push_fixture
+  given_release v1.0.0
+  commit_change "feat: export the orders as CSV"
+  push_fixture
+  git -C "$ORIGIN" tag -d v1.0.0
+
+  run_release
+
+  assert_failure 3
+  assert_output --partial "the baseline v1.0.0 is no longer on origin"
+  refute_local_tag v1.1.0
+  refute_remote_tag v1.1.0
+}
