@@ -1,0 +1,156 @@
+name: release
+
+# Preview: a push to main, or a manual dispatch left on "preview", dry-runs the
+# release and writes the pending version and notes to the job summary.
+# Publish: a push to release/*, or a manual dispatch with "publish", cuts the
+# tag and the GitHub release. Publish is refused from any ref but main or
+# release/*, and does not start until the bats suite is green.
+on:
+  push:
+    branches: [main, 'release/**']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: preview dry-runs the release; publish cuts it (main or release/* only)
+        type: choice
+        options: [preview, publish]
+        default: preview
+
+# The release.sh this workflow runs is the one at this commit of
+# JeremieLitzler/semantic-release-script, never the copy on the commit being
+# released, so a bug in a commit cannot break its own release.
+#
+# To move the pin:
+#   1. Pick the upstream commit (or v* tag) to run, and read its release.sh.
+#   2. Change RELEASE_SCRIPT_REF below to it.
+#   3. Open a pull request: the preview job on main shows the effect of the
+#      new script on the pending release before anything is published.
+env:
+  RELEASE_SCRIPT_REF: 57b3a06abb59a15029a4b3812bd4c14a7795b989
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'preview')
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the pinned release.sh
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/JeremieLitzler/semantic-release-script/${RELEASE_SCRIPT_REF}/scripts/release/release.sh" \
+            -o "$RUNNER_TEMP/release.sh"
+          chmod +x "$RUNNER_TEMP/release.sh"
+
+      - name: Dry-run the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          "$RUNNER_TEMP/release.sh" --dry-run \
+            --summary "$RUNNER_TEMP/release.env" --notes "$RUNNER_TEMP/notes.md"
+          code=$?
+          set -e
+          {
+            echo "## Release preview"
+            echo
+            if [[ $code -eq 0 ]]; then
+              echo '```'
+              cat "$RUNNER_TEMP/release.env"
+              echo '```'
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+            elif [[ $code -eq 2 ]]; then
+              echo "Nothing to release: no commit since the last version tag."
+            else
+              echo "The preview stopped with exit code $code. See the step log."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+          # 2 is a normal day on a trunk that has only seen merges.
+          [[ $code -eq 0 || $code -eq 2 ]]
+
+  guard:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'publish')
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Refuse a ref that cannot publish
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/main && "$GITHUB_REF" != refs/heads/release/* ]]; then
+            echo "::error::publish runs from main or a release/* branch, not $GITHUB_REF"
+            exit 1
+          fi
+
+  test:
+    needs: guard
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Run the bats suites
+        run: tests/libs/bats-core/bin/bats tests/
+
+  publish:
+    needs: [guard, test]
+    runs-on: ubuntu-26.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Refuse a release/* ref that main does not contain
+        if: startsWith(github.ref, 'refs/heads/release/')
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+            echo "::error::$GITHUB_REF_NAME is not contained in main; merge it or cut a new release branch from main"
+            exit 1
+          fi
+
+      - name: Delete an orphaned tag a failed run left on this commit
+        run: |
+          git fetch --tags --force origin
+          for tag in $(git tag --points-at HEAD --list 'v*'); do
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              echo "Deleting orphaned tag $tag (no GitHub release carries it)"
+              git push origin --delete "refs/tags/$tag"
+              git tag -d "$tag"
+            fi
+          done
+
+      - name: Fetch the pinned release.sh
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/JeremieLitzler/semantic-release-script/${RELEASE_SCRIPT_REF}/scripts/release/release.sh" \
+            -o "$RUNNER_TEMP/release.sh"
+          chmod +x "$RUNNER_TEMP/release.sh"
+
+      - name: Cut the release
+        id: release
+        run: |
+          "$RUNNER_TEMP/release.sh" --yes --summary "$RUNNER_TEMP/release.env"
+          cat "$RUNNER_TEMP/release.env" >>"$GITHUB_OUTPUT"
+
+      - name: Report
+        if: steps.release.outputs.released == 'yes'
+        run: echo "Published ${{ steps.release.outputs.tag }}" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Delete the release branch
+        if: >-
+          github.event_name == 'push' &&
+          startsWith(github.ref, 'refs/heads/release/') &&
+          steps.release.outputs.released == 'yes'
+        run: git push origin --delete "$GITHUB_REF_NAME"
