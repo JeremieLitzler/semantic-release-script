@@ -177,3 +177,13 @@ half_publish() {
   refute_output --partial "resuming it at step 4"
   assert_no_release_created
 }
+
+@test "--level-from is ignored on a resume: the tag already carries the version" {
+  half_publish
+
+  run_release --level-from release/major/x
+
+  assert_success
+  assert_output --partial "--level-from is ignored on a resume: v1.1.0 already carries the version"
+  assert_line "Released v1.1.0"
+}

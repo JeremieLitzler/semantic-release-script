@@ -192,7 +192,7 @@ setup() {
 
 @test "an option that shapes a release is refused with 1" {
   local option
-  for option in "--yes" "--dry-run" "--local" "--level patch" "--notes n.md" "--changelog c.md" "--summary s.env"; do
+  for option in "--yes" "--dry-run" "--local" "--level patch" "--level-from release/patch/x" "--notes n.md" "--changelog c.md" "--summary s.env"; do
     # shellcheck disable=SC2086
     run_check $option
 

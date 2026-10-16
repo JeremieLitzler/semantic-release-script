@@ -42,6 +42,8 @@ LOCAL_ONLY=false
 SINCE_REF=""
 TO_REF=""
 FORCE_LEVEL=""
+LEVEL_FROM=""
+FORCE_OPTION="--level" # the option that set FORCE_LEVEL, named in what the run says
 NOTES_OUT=""
 CHANGELOG_OUT=""
 SUMMARY_OUT=""
@@ -136,6 +138,10 @@ Options:
       --trunk <name>    The branch releases are cut from. Defaults to the
                          repository's default branch on GitHub.
       --level <level>   Force the bump: major | minor | patch.
+      --level-from <ref>
+                         Force the bump from a branch name: the segment after
+                         release/ in release/<major|minor|patch>/<id>. A name
+                         with no level there changes nothing. Not with --level.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
       --summary <file>  Write what the run decided to <file>, as key=value
@@ -187,6 +193,7 @@ while [[ $# -gt 0 ]]; do
     --to)           TO_REF="${2:-}"; [[ -n $TO_REF ]] || die "--to needs a ref"; shift 2 ;;
     --trunk)        TRUNK="${2:-}"; [[ -n $TRUNK ]] || die "--trunk needs a name"; shift 2 ;;
     --level)        FORCE_LEVEL="${2:-}"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
+    --level-from)   LEVEL_FROM="${2:-}"; [[ -n $LEVEL_FROM ]] || die "--level-from needs a ref"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
@@ -205,6 +212,16 @@ case "$FORCE_LEVEL" in
   "" | major | minor | patch) ;;
   *) die "--level must be one of: major, minor, patch" ;;
 esac
+
+if [[ -n $LEVEL_FROM ]]; then
+  [[ -z $FORCE_LEVEL ]] || die "--level and --level-from cannot be used together"
+  # Exactly major, minor or patch, lowercase, as the whole segment after
+  # release/. Anything else is a name that carries no level, left as it was.
+  if [[ ${LEVEL_FROM#refs/heads/} =~ ^release/(major|minor|patch)/ ]]; then
+    FORCE_LEVEL="${BASH_REMATCH[1]}"
+    FORCE_OPTION="--level-from"
+  fi
+fi
 
 # ------------------------------------------------------------ release summary
 #
@@ -1029,7 +1046,7 @@ if [[ $RESUMING == true ]]; then
   # the tag. Said out loud rather than dropped, since a caller passing it wants
   # a version this run is not the one to choose.
   [[ -z $FORCE_LEVEL ]] \
-    || warn "--level is ignored on a resume: ${NEW_TAG} already carries the version"
+    || warn "${FORCE_OPTION} is ignored on a resume: ${NEW_TAG} already carries the version"
 else
   next_version
 fi
@@ -1059,7 +1076,7 @@ info ""
 if [[ $RESUMING == true ]]; then
   info "Version         : ${BOLD}${GREEN}${NEW_VERSION}${RESET} (read off ${NEW_TAG}, which origin already holds)"
 else
-  info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with --level)}"
+  info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with ${FORCE_OPTION})}"
   info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
 
   # A tag on the target with no release never reaches these: that one is a
