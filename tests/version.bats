@@ -442,3 +442,81 @@ given_stranded_tag() {
   assert_output --partial "the baseline v1.1.0 is not on origin"
   assert_output --partial "never pushed"
 }
+
+# --level-from reads the level off a branch name, so a release/<level>/<id>
+# branch carries the bump it was cut for.
+@test "--level-from forces the level named right after release/" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run --level-from release/major/20261015.1
+
+  assert_success
+  assert_line "Bump            : major (forced with --level-from)"
+  assert_line "Version         : 1.2.3 -> 2.0.0"
+}
+
+@test "--level-from reads minor and patch too, over the bump the commits decide" {
+  tag_version v1.2.3
+  commit_change "feat!: drop the v1 authentication endpoints"
+  push_fixture
+
+  run_release --dry-run --level-from release/minor/x
+  assert_success
+  assert_line "Version         : 1.2.3 -> 1.3.0"
+
+  run_release --dry-run --level-from release/patch/x
+  assert_success
+  assert_line "Version         : 1.2.3 -> 1.2.4"
+}
+
+@test "--level-from takes the refs/heads/ prefix" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run --level-from refs/heads/release/minor/x
+
+  assert_success
+  assert_line "Bump            : minor (forced with --level-from)"
+}
+
+@test "--level-from with a name carrying no level changes nothing" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  run_release --dry-run
+  local expected="$output"
+
+  local name
+  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major release/major-x/y; do
+    run_release --dry-run --level-from "$name"
+
+    assert_success
+    assert_output "$expected"
+  done
+}
+
+@test "--level together with --level-from is a mistake: 1, nothing written" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run --level patch --level-from release/major/x --summary "${BATS_TEST_TMPDIR}/s.env"
+
+  assert_failure 1
+  assert_output --partial "--level and --level-from cannot be used together"
+  [ ! -e "${BATS_TEST_TMPDIR}/s.env" ]
+}
+
+@test "--level-from over a range with no commit is still nothing to release" {
+  tag_version v1.2.3
+  push_fixture
+  given_release v1.2.3
+
+  run_release --dry-run --level-from release/major/x
+
+  assert_failure 2
+  assert_output --partial "no commit to release in range 'v1.2.3..HEAD'"
+}

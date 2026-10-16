@@ -28,6 +28,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--since <ref>` | Read the commits since `<ref>` instead of the last `v*` tag. |
 | `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
+| `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`. A name with no level there changes nothing. Not with `--level`. |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
@@ -316,7 +317,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 
 | File | Covers |
 | --- | --- |
-| `tests/version.bats` | the bump each commit type causes, the baseline, the first release, `--level` |
+| `tests/version.bats` | the bump each commit type causes, the baseline, the first release, `--level`, `--level-from` |
 | `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
