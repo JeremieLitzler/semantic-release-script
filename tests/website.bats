@@ -119,12 +119,32 @@ resolve_with() {
   assert_failure
 }
 
-@test "the options table has a row for every flag of the help" {
+# parsed_flags — every flag the argument loop of release.sh parses, one per
+# line, short and long alike. Read from the case arms, so a flag added there
+# is demanded of the website without anyone editing this test.
+parsed_flags() {
+  sed -nE 's/^    ((-[a-zA-Z]) \| )?(--[a-z-]+)\).*/\2\n\3/p' "${TESTS_DIR}/../scripts/release/release.sh" | grep .
+}
+
+@test "the options table has a row for every flag release.sh parses" {
+  local flag flags
+  flags="$(parsed_flags)"
+  # A parser that stopped matching must not turn this into a vacuous pass.
+  [[ "$(wc -l <<<"$flags")" -ge 13 ]]
+
+  while read -r flag; do
+    grep -qE "code-inline\">${flag}[ <]" "${SITE}/index.html" || fail "the options table lacks ${flag}"
+  done <<<"$flags"
+}
+
+@test "every flag release.sh parses is listed by its --help" {
   local flag
-  for flag in --yes --dry-run --local --since --to --trunk --level --level-from --notes --changelog --summary --check --help; do
-    run grep -F "code-inline\">${flag}" "${SITE}/index.html"
-    assert_success
-  done
+  run bash "${TESTS_DIR}/../scripts/release/release.sh" --help
+  assert_success
+
+  while read -r flag; do
+    grep -qE -- "(^|[ ,])${flag}([ ,]|$)" <<<"$output" || fail "--help lacks ${flag}"
+  done <<<"$(parsed_flags)"
 }
 
 # --- the Netlify config --------------------------------------------------------
