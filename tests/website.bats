@@ -135,6 +135,7 @@ resolve_with() {
   assert_output --partial 'base = "website"'
   assert_output --partial 'publish = "."'
   assert_output --partial 'command = ""'
+  assert_output --partial 'NODE_ENV = "production"'
 }
 
 @test "the site's tooling stays in its folder: the repository root has no package.json" {
