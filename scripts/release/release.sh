@@ -764,7 +764,8 @@ check_level_not_lowered() {
   [[ $FORCE_LEVEL_OPTION == "--level-from" && -n $FORCE_LEVEL ]] || return 0
   local forced implied
   forced=$(level_rank "$FORCE_LEVEL"); implied=$(level_rank "$IMPLIED_LEVEL")
-  (( forced >= implied )) \n    || fail_check "$(refusal_reason level-lowered "$FORCE_LEVEL" "$IMPLIED_LEVEL")"
+  (( forced >= implied )) \
+    || fail_check "$(refusal_reason level-lowered "$FORCE_LEVEL" "$IMPLIED_LEVEL")"
 }
 
 # level_rank <level> -> a number that grows with the bump.
@@ -1000,7 +1001,8 @@ run_setup_report() {
       report_check fail "the next tag is free" "" check_tag_free
       report_check fail "the baseline is still on origin" "" check_baseline_on_origin
       report_check fail "the baseline is the highest version tag" "" check_baseline_highest
-      [[ -z $LEVEL_FROM || -z $FORCE_LEVEL ]] \n        || report_check fail "the branch name forces no level below the commits" "" check_level_not_lowered
+      [[ -z $LEVEL_FROM || -z $FORCE_LEVEL ]] \
+        || report_check fail "the branch name forces no level below the commits" "" check_level_not_lowered
     fi
   fi
 }
