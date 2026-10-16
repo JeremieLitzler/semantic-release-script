@@ -43,7 +43,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 
 Publish refuses a `release/*` ref that `main` does not contain, deletes an orphaned remote tag (no GitHub release carries it) left on that commit by a failed run so the re-push re-cuts the release, and does not start until the bats suite is green for that commit.
 
-The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. It points at the commit of `main` that carries `--level-from` and the refusal of a lower level, named in a comment above it, until the next pin move. To move the pin, set `RELEASE_SCRIPT_REF` to the SHA of the commit to run (for a version tag, `git rev-parse 'vX.Y.Z^{commit}'`) and update the comment to name it, then merge that change: the next push to `main` previews with it.
+The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. It points at the commit the `v1.0.0` tag targets, named in a comment above it, until the next pin move. To move the pin, set `RELEASE_SCRIPT_REF` to the SHA of the commit to run (for a version tag, `git rev-parse 'vX.Y.Z^{commit}'`) and update the comment to name it, then merge that change: the next push to `main` previews with it.
 
 Both jobs pass the ref name to `--level-from`, so a push to `release/major/<id>` publishes a major, and a preview dispatched from that branch shows the forced version. A push or dispatch from `main` forces no level.
 
