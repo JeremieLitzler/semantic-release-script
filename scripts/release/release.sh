@@ -140,7 +140,8 @@ Options:
       --level <level>   Force the bump: major | minor | patch.
       --level-from <ref>
                          Force the bump from a branch name: the segment after
-                         release/ in release/<major|minor|patch>/<id>. A name
+                         release/ in release/<major|minor|patch>/<id>, or the
+                         bare release/<major|minor|patch>. A name
                          with no level there changes nothing. Must be a branch,
                          locally or on origin. Not with --level.
       --notes <file>    Also write the release notes to <file>.
@@ -997,7 +998,9 @@ preflight
 # branches and on origin's remote-tracking ones, which a CI clone has alone.
 if [[ -n $LEVEL_FROM ]]; then
   branch="${LEVEL_FROM#refs/heads/}"
-  git show-ref --verify --quiet "refs/heads/${branch}"     || git show-ref --verify --quiet "refs/remotes/origin/${branch}"     || die "--level-from '${LEVEL_FROM}' is not a branch, locally or on origin"
+  git show-ref --verify --quiet "refs/heads/${branch}" \
+    || git show-ref --verify --quiet "refs/remotes/origin/${branch}" \
+    || die "--level-from '${LEVEL_FROM}' is not a branch, locally or on origin"
 fi
 
 check_branch || warn "$CHECK_FAILURE"
