@@ -19,19 +19,20 @@ on:
 # The release.sh this workflow runs is the one at this commit of
 # JeremieLitzler/semantic-release-script, never the copy on the commit being
 # released, so a bug in a commit cannot break its own release. It is the
-# commit the latest published release points to.
+# commit on main that carries --level-from and the refusal of a level below
+# what the commits imply, not a version tag, until the next pin move.
 #
-# To move the pin to the latest release:
-#   1. Find the commit of the latest version tag:
+# To move the pin:
+#   1. Pick the commit of main to run, or the commit of a version tag:
 #        git rev-parse 'vX.Y.Z^{commit}'
-#   2. Change RELEASE_SCRIPT_REF below to that SHA, and the tag named in the
-#      comment above it.
+#   2. Change RELEASE_SCRIPT_REF below to that SHA, and the comment above it
+#      to name that commit or tag.
 #   3. Merge that change: the next push to main previews the pending release
 #      with the new script before anything is published.
 # Pin the SHA, not the tag name: a tag can be moved, a SHA cannot.
 env:
-  # v0.4.0
-  RELEASE_SCRIPT_REF: 4e98ffa1646e8936053fd107df9552d91ada62da
+  # Commit 1e09fa0 on main: --level-from and the refusal of a lower level (#79)
+  RELEASE_SCRIPT_REF: 1e09fa09c72cfcd064a77e0d4a86f52dfd46e49c
 
 permissions:
   contents: read
@@ -61,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          "$RUNNER_TEMP/release.sh" --dry-run \
+          "$RUNNER_TEMP/release.sh" --dry-run --level-from "$GITHUB_REF_NAME" \
             --summary "$RUNNER_TEMP/release.env" --notes "$RUNNER_TEMP/notes.md"
           code=$?
           set -e
@@ -171,7 +172,8 @@ jobs:
         id: release
         run: |
           set +e
-          "$RUNNER_TEMP/release.sh" --yes --summary "$RUNNER_TEMP/release.env"
+          "$RUNNER_TEMP/release.sh" --yes --level-from "$GITHUB_REF_NAME" \
+            --summary "$RUNNER_TEMP/release.env"
           code=$?
           set -e
           if [[ $code -eq 2 ]]; then
