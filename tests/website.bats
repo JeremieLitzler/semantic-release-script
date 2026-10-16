@@ -138,14 +138,9 @@ resolve_with() {
   assert_output --partial 'NODE_ENV = "production"'
 }
 
-@test "netlify.toml skips every build that is not a build hook build, so a push or a pull request does not deploy" {
-  run cat "${TESTS_DIR}/../netlify.toml"
-
-  assert_output --partial 'ignore = "test -z \"$INCOMING_HOOK_TITLE\""'
-}
-
-@test "the ignore rule exits 0 (skip) without a hook title and 1 (build) with one" {
-  rule='test -z "$INCOMING_HOOK_TITLE"'
+@test "the ignore rule in netlify.toml skips a build without a hook title (push, pull request) and lets a hook build through" {
+  rule="$(sed -n 's/^[[:space:]]*ignore = "\(.*\)"$/\1/p' "${TESTS_DIR}/../netlify.toml" | sed 's/\\"/"/g')"
+  [[ -n "$rule" ]]
 
   run env -u INCOMING_HOOK_TITLE bash -c "$rule"
   assert_success
