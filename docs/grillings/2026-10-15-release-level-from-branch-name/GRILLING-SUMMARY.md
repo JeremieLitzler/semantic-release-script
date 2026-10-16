@@ -4,7 +4,7 @@
 
 A push to a `release/*` branch publishes, but the bump is decided by the commits, so the first major release (v1.0.0, from v0.4.0) is out of reach for CI. The contract settled here lets the branch name force the level, with `release.sh` as the one place that parses it.
 
-The level is a path segment: `release/<level>/<id>`, for example `release/major/20261015.1`. The accepted values are exactly `major`, `minor` and `patch`, in lowercase. A name with no such segment (`release/20261015.1`, `release/hotfix-login`, `main`) behaves exactly as today, with no extra output. A name whose segment merely looks like a level (`release/mayor/...`, `release/Major/...`) is ignored in the same way, not refused: the starting proposal leaned towards refusing it, and you chose to keep the contract to the three exact values.
+The level is a path segment: `release/<level>/<id>`, for example `release/major/20261015.1`, or the bare `release/<level>` (see below). The accepted values are exactly `major`, `minor` and `patch`, in lowercase. A name with no such segment (`release/20261015.1`, `release/hotfix-login`, `main`) behaves exactly as today, with no extra output. A name whose segment merely looks like a level (`release/mayor/...`, `release/Major/...`) is ignored in the same way, not refused: the starting proposal leaned towards refusing it, and you chose to keep the contract to the three exact values.
 
 The parsing is in `release.sh`, behind a new option `--level-from <ref>` that takes a branch name; the workflow passes `GITHUB_REF_NAME`, because CI checks out a detached `HEAD`. This was chosen over parsing in the workflow so that every consumer vendoring the script gets the same contract and each refusal is pinned by a bats test. The cost, accepted, is that the workflow runs a pinned copy of the script, so the contract cannot be used by CI until the pin moves.
 
@@ -22,7 +22,7 @@ The contract is documented in README "Cutting a release", in `CONTEXT.md` (a new
 
 ## Decision index
 
-- Q1 (v01): the level is a path segment, `release/<level>/<id>`; values `major`, `minor`, `patch`.
+- Q1 (v01): the level is a path segment, `release/<level>/<id>` (bare `release/<level>` too, see Q25); values `major`, `minor`, `patch`.
 - Q2 (v01): parsed in `release.sh`, not in the workflow; v1.0.0 needs the pin to move first.
 - Q3 (v01): only the branch name carries the level; no dispatch input.
 - Q4 (v01): a forced level over an empty range still exits `2`.

@@ -43,7 +43,7 @@ SINCE_REF=""
 TO_REF=""
 FORCE_LEVEL=""
 LEVEL_FROM=""
-FORCE_LEVEL_LABEL="--level" # how the run names the option that forced the level, in what it says only
+FORCE_LEVEL_OPTION="--level" # how the run names the option that forced the level, in what it says only
 NOTES_OUT=""
 CHANGELOG_OUT=""
 SUMMARY_OUT=""
@@ -221,7 +221,7 @@ if [[ -n $LEVEL_FROM ]]; then
   # release/. Anything else is a name that carries no level, left as it was.
   if [[ ${LEVEL_FROM#refs/heads/} =~ ^release/(major|minor|patch)(/|$) ]]; then
     FORCE_LEVEL="${BASH_REMATCH[1]}"
-    FORCE_LEVEL_LABEL="--level-from"
+    FORCE_LEVEL_OPTION="--level-from"
   fi
 fi
 
@@ -1058,7 +1058,7 @@ if [[ $RESUMING == true ]]; then
   # the tag. Said out loud rather than dropped, since a caller passing it wants
   # a version this run is not the one to choose.
   [[ -z $FORCE_LEVEL ]] \
-    || warn "${FORCE_LEVEL_LABEL} is ignored on a resume: ${NEW_TAG} already carries the version"
+    || warn "${FORCE_LEVEL_OPTION} is ignored on a resume: ${NEW_TAG} already carries the version"
 else
   next_version
 fi
@@ -1088,7 +1088,7 @@ info ""
 if [[ $RESUMING == true ]]; then
   info "Version         : ${BOLD}${GREEN}${NEW_VERSION}${RESET} (read off ${NEW_TAG}, which origin already holds)"
 else
-  info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with ${FORCE_LEVEL_LABEL})}"
+  info "Bump            : ${BOLD}${LEVEL}${RESET}${FORCE_LEVEL:+ (forced with ${FORCE_LEVEL_OPTION})}"
   info "Version         : ${CURRENT_VERSION} -> ${BOLD}${GREEN}${NEW_VERSION}${RESET}"
 
   # A tag on the target with no release never reaches these: that one is a
