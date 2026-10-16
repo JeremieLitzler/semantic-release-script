@@ -34,8 +34,8 @@ on:
 #      with the new script before anything is published.
 # Pin the SHA, not the tag name: a tag can be moved, a SHA cannot.
 env:
-  # Commit 1e09fa0 on main: --level-from and the refusal of a lower level (#79)
-  RELEASE_SCRIPT_REF: 1e09fa09c72cfcd064a77e0d4a86f52dfd46e49c
+  # Tag v1.0.0 (commit 3a803a8): the first major
+  RELEASE_SCRIPT_REF: 3a803a8290aeae72e404cab7b2d655d0e2e81ea4
 
 permissions:
   contents: read
