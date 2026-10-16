@@ -85,6 +85,8 @@ A forced level never changes the commit range. The range is still the baseline t
 3. The new things, by theme.
 4. A link to the range (`compare/vPREVIOUS...vNEXT`).
 
+The first one is [docs/release-1.0.0.md](docs/release-1.0.0.md).
+
 #### Troubleshooting the workflow
 
 - **A preview dispatched from a tag fails with `--level-from '<tag>' is not a branch, locally or on origin`.** The workflow passes the ref name to `--level-from`, which accepts a branch only. Dispatch the preview from `main` or from a `release/*` branch. This comes from the script's check; it has not been reproduced on a runner.
