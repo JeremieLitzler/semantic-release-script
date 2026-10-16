@@ -47,6 +47,44 @@ The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_RE
 
 Both jobs pass the ref name to `--level-from`, so a push to `release/major/<id>` publishes a major, and a preview dispatched from that branch shows the forced version. A push or dispatch from `main` forces no level.
 
+#### Forcing the level from the branch name
+
+The segment right after `release/` can force the bump, so CI can cut a release the commits alone would not.
+
+| Branch | Effect |
+| --- | --- |
+| `release/major/<id>`, `release/major` | Forces a major. |
+| `release/minor/<id>`, `release/minor` | Forces a minor. |
+| `release/patch/<id>`, `release/patch` | Forces a patch. |
+| `release/20261015.1`, `main`, `release/hotfix-login` | No level: the commits decide, as before. |
+| `release/mayor/x`, `release/Major/x`, `release/major-x/y` | Near-misses: no level either, and not refused. Only the three lowercase values count. |
+
+The contract is `release.sh`'s own (`--level-from`), so a consumer vendoring the script gets the same one. It ends in these outcomes:
+
+- **Exit `3`**: the name forces a level below what the commits imply, `release/patch/<id>` over a `feat` for instance. Forcing up is allowed. `--level` is never refused for being lower. This holds in a real run, `--dry-run`, `--local` and `--check`.
+- **Exit `1`**: the value is not an existing branch (locally or on origin) or is empty, or `--level` is given with `--level-from`.
+- **Exit `2`**: a forced level over a range with no commit is still "nothing to release".
+- **A resume**: `--level-from` is ignored with a warning, like `--level`.
+
+There is no dispatch input: only the branch name carries the level, and a dispatch from a `release/major/...` ref honours its name.
+
+**A patch-only release** is `release/patch/<id>` cut from `main`. The refusal above holds it to patch-only commits. A fix from an older tag is not supported (see the maintenance line in [docs/supported-setups.md](docs/supported-setups.md)).
+
+**The first major (v1.0.0, from v0.4.0)** is cut without an intermediate v0.5.0:
+
+1. Merge the work to `main`, with `docs/release-1.0.0.md` written (see below).
+2. Move `RELEASE_SCRIPT_REF` to a commit that carries `--level-from`, as described above.
+3. Push `release/major/<id>` from `main`.
+
+A forced level never changes the commit range. The range is still the baseline to the release commit, so the notes of a forced major can be thin: the v1.0.0 notes carry what the commits hold (a `feat` under `Features`, the `ci:` commits under `Others`) and no `BREAKING CHANGES` section when none is declared. That is what the summary below is for.
+
+**The summary of a major** is a hand-written `docs/release-<version>.md` (`release-1.0.0.md` first), a convention for every major, not enforced by the script and not a copy of the release notes. Write and merge it before pushing the `release/major/<id>` branch; its `docs:` commit lands under `Others` and does not change the forced major. Nothing links the GitHub release to it: link it from here, or add a line to the release by hand. A suggested outline, with no template file:
+
+1. What the major means.
+2. What breaks, and what to change.
+3. The new things, by theme.
+4. A link to the range (`compare/vPREVIOUS...vNEXT`).
+
 #### Troubleshooting the workflow
 
 - **A preview dispatched from a tag fails with `--level-from '<tag>' is not a branch, locally or on origin`.** The workflow passes the ref name to `--level-from`, which accepts a branch only. Dispatch the preview from `main` or from a `release/*` branch. This comes from the script's check; it has not been reproduced on a runner.
