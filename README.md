@@ -4,8 +4,8 @@ A bash implementation of semantic release, so a release does not depend on a
 tree of npm packages. It reads the conventional commits, decides the version,
 writes the notes, tags and publishes — with a human gate before each step.
 
-Requires `git`, `bash` 4+ and the [GitHub CLI](https://cli.github.com/) already
-logged in (`gh auth login`).
+Requires `git`, `bash` 4+ and the [GitHub CLI](https://cli.github.com/). Run locally, `gh` must
+already be logged in (`gh auth login`); in CI, a `GH_TOKEN` in the environment stands in for the login.
 
 ## Releasing
 
