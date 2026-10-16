@@ -443,12 +443,18 @@ given_stranded_tag() {
   assert_output --partial "never pushed"
 }
 
-# --level-from reads the level off a branch name, so a release/<level>/<id>
-# branch carries the bump it was cut for.
-@test "--level-from forces the level named right after release/" {
+# given_a_fix_since_v1_2_3 — a pushed trunk one fix past v1.2.3, the range the
+# --level-from tests force a level over.
+given_a_fix_since_v1_2_3() {
   tag_version v1.2.3
   commit_change "fix: keep the cart total in sync"
   push_fixture
+}
+
+# --level-from reads the level off a branch name, so a release/<level>/<id>
+# branch carries the bump it was cut for.
+@test "--level-from forces the level named right after release/" {
+  given_a_fix_since_v1_2_3
 
   git branch -q release/major/20261015.1
   run_release --dry-run --level-from release/major/20261015.1
@@ -475,9 +481,7 @@ given_stranded_tag() {
 }
 
 @test "--level-from takes the refs/heads/ prefix" {
-  tag_version v1.2.3
-  commit_change "fix: keep the cart total in sync"
-  push_fixture
+  given_a_fix_since_v1_2_3
 
   git branch -q release/minor/x
   run_release --dry-run --level-from refs/heads/release/minor/x
@@ -487,17 +491,15 @@ given_stranded_tag() {
 }
 
 @test "--level-from with a name carrying no level changes nothing" {
-  tag_version v1.2.3
-  commit_change "fix: keep the cart total in sync"
-  push_fixture
+  given_a_fix_since_v1_2_3
   run_release --dry-run
   local expected="$output"
 
   local name
-  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major release/major-x/y; do
+  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major-x/y; do
     git branch -q "$name" 2>/dev/null || true
   done
-  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major release/major-x/y; do
+  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major-x/y; do
     run_release --dry-run --level-from "$name"
 
     assert_success
@@ -506,9 +508,7 @@ given_stranded_tag() {
 }
 
 @test "--level together with --level-from is a mistake: 1, nothing written" {
-  tag_version v1.2.3
-  commit_change "fix: keep the cart total in sync"
-  push_fixture
+  given_a_fix_since_v1_2_3
 
   run_release --dry-run --level patch --level-from release/major/x --summary "${BATS_TEST_TMPDIR}/s.env"
 
@@ -530,9 +530,7 @@ given_stranded_tag() {
 }
 
 @test "--level-from refuses a name that is no branch, locally or on origin: 1" {
-  tag_version v1.2.3
-  commit_change "fix: keep the cart total in sync"
-  push_fixture
+  given_a_fix_since_v1_2_3
 
   run_release --dry-run --level-from release/major/nope
 
@@ -541,9 +539,7 @@ given_stranded_tag() {
 }
 
 @test "--level-from accepts a branch only origin holds" {
-  tag_version v1.2.3
-  commit_change "fix: keep the cart total in sync"
-  push_fixture
+  given_a_fix_since_v1_2_3
   git push -q origin HEAD:refs/heads/release/major/remote-only
   git fetch -q origin
 
@@ -558,4 +554,15 @@ given_stranded_tag() {
 
   assert_failure 1
   assert_output --partial "--level-from needs a ref"
+}
+
+@test "--level-from takes a name that is only the level, release/major" {
+  given_a_fix_since_v1_2_3
+  git branch -q release/major
+
+  run_release --dry-run --level-from release/major
+
+  assert_success
+  assert_line "Bump            : major (forced with --level-from)"
+  assert_line "Version         : 1.2.3 -> 2.0.0"
 }
