@@ -27,21 +27,26 @@ If you ran a 0.x script, check these.
 ## The new things, by theme
 
 **Deciding the version**
+
 - `--level-from <ref>` forces the bump from the branch name: `release/major/<id>`, `release/minor/<id>`, `release/patch/<id>`. A level below what the commits imply is refused with `3`; forcing up is allowed.
 - `--since` resolves the current version when it is not a tag, and the notes dedupe by issue, keeping the most significant category.
 - Historical ranges can be replayed to rebuild past releases.
 
 **Refusing a bad release**
+
 - Guards for a shallow clone, a failed tag fetch, an unreachable ref, a baseline that is not the highest tag, and a baseline origin no longer holds.
 
 **Knowing where you stand**
+
 - `--check` prints the setup report: every check and guard against the target a release would use, with the reason and the fix.
 - `--summary <file>` writes what the run decided as `key=value` lines, so a CI job reads the version off a file.
 
 **Recovering**
+
 - A half-published release (a tag on origin, no GitHub release) is resumed at step 4 instead of computing a new version.
 
 **Running in CI**
+
 - This repository cuts its own releases from `.github/workflows/release.yml`, pinned to a commit of `release.sh`.
 - The bats suite runs on fixture-built repositories, and the `gh` it calls is a fake.
 - A promotion website, <https://semver-script.madebyjeremie.fr>, documents the options.
