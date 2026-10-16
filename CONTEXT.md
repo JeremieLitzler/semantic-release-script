@@ -28,7 +28,11 @@ _Avoid_: last tag, current version, previous release
 
 **Bump**:
 The step from the baseline to the next version: major, minor or patch, decided by the commits in the range.
-_Avoid_: increment, level (except when naming the `--level` option)
+_Avoid_: increment, level (except when naming the `--level` or `--level-from` option, or the level segment)
+
+**Level segment**:
+The part of a branch name right after `release/` that forces the bump, read by `--level-from`: `major`, `minor` or `patch`, in lowercase, followed by `/<id>` or ending the name (`release/major/20261015.1`, `release/major`). A name without one (`release/20261015.1`, `main`) or with a near-miss (`release/mayor/x`, `release/Major/x`) forces nothing and is not refused. The value given to `--level-from` must be an existing branch, locally or on origin.
+_Avoid_: level suffix, release type
 
 **Non-monotonic version**:
 A computed next version that is not higher than every version tag already in the repository. On a single trunk it can only come from a baseline older than the latest release.

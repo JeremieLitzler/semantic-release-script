@@ -495,11 +495,12 @@ given_a_fix_since_v1_2_3() {
   run_release --dry-run
   local expected="$output"
 
+  local names=(release/20261015.1 release/hotfix-login release/mayor/x release/Major/x release/MAJOR/x release/major-x/y)
   local name
-  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major-x/y; do
-    git branch -q "$name" 2>/dev/null || true
+  for name in "${names[@]}"; do
+    git branch -q "$name"
   done
-  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major-x/y; do
+  for name in "${names[@]}" main; do
     run_release --dry-run --level-from "$name"
 
     assert_success
