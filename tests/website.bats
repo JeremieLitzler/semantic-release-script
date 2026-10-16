@@ -129,8 +129,8 @@ resolve_with() {
 
 # --- the Netlify config --------------------------------------------------------
 
-@test "netlify.toml states the base and publish directories and no build command" {
-  run cat "${SITE}/netlify.toml"
+@test "netlify.toml, at the repository root where Netlify reads it, states the base and publish directories and no build command" {
+  run cat "${TESTS_DIR}/../netlify.toml"
 
   assert_output --partial 'base = "website"'
   assert_output --partial 'publish = "."'
