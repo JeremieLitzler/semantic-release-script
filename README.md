@@ -28,7 +28,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--since <ref>` | Read the commits since `<ref>` instead of the last `v*` tag. |
 | `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
-| `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`. A name with no level there changes nothing. Not with `--level`. |
+| `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`. A name with no level there changes nothing. The value must be a branch, locally or on origin, or the run errors. Not with `--level`. |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |

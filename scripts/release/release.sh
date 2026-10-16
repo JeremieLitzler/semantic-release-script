@@ -141,7 +141,8 @@ Options:
       --level-from <ref>
                          Force the bump from a branch name: the segment after
                          release/ in release/<major|minor|patch>/<id>. A name
-                         with no level there changes nothing. Not with --level.
+                         with no level there changes nothing. Must be a branch,
+                         locally or on origin. Not with --level.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
       --summary <file>  Write what the run decided to <file>, as key=value
@@ -990,6 +991,14 @@ if [[ $CHECK_ONLY == true ]]; then
 fi
 
 preflight
+
+# A name that maps to no branch is a typo or a stale variable, not a name that
+# carries no level, so it is refused whatever it holds. Checked on the local
+# branches and on origin's remote-tracking ones, which a CI clone has alone.
+if [[ -n $LEVEL_FROM ]]; then
+  branch="${LEVEL_FROM#refs/heads/}"
+  git show-ref --verify --quiet "refs/heads/${branch}"     || git show-ref --verify --quiet "refs/remotes/origin/${branch}"     || die "--level-from '${LEVEL_FROM}' is not a branch, locally or on origin"
+fi
 
 check_branch || warn "$CHECK_FAILURE"
 
