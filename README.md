@@ -348,7 +348,7 @@ series of releases in one file, for instance to review the test runs.
 
 ## Testing it
 
-Two [bats](https://github.com/bats-core/bats-core) suites test `release.sh` without touching this repository's history or tracker. bats, bats-support and bats-assert are pinned as git submodules under `tests/libs/`, and [`jq`](https://jqlang.org/) is the only other dev dependency.
+Two [bats](https://github.com/bats-core/bats-core) suites test `release.sh` without touching this repository's history or tracker. bats, bats-support and bats-assert are pinned as git submodules under `tests/libs/`, and [`jq`](https://jqlang.org/) and [`node`](https://nodejs.org/) (for the website's version-fill script, `tests/website.bats`) are the only other dev dependencies.
 
 ```bash
 git submodule update --init          # once per clone

@@ -5,15 +5,18 @@ name: release
 # Publish: a push to release/*, or a manual dispatch with "publish", cuts the
 # tag and the GitHub release. Publish is refused from any ref but main or
 # release/*, and does not start until the bats suite is green.
+# Deploy site: after a release is cut, and on a manual dispatch with
+# "deploy-site", the Netlify build hook redeploys the website. It is a job of
+# its own, so a Netlify outage never turns a published release red.
 on:
   push:
     branches: [main, 'release/**']
   workflow_dispatch:
     inputs:
       action:
-        description: preview dry-runs the release; publish cuts it (main or release/* only)
+        description: preview dry-runs the release; publish cuts it (main or release/* only); deploy-site redeploys the website without a release
         type: choice
-        options: [preview, publish]
+        options: [preview, publish, deploy-site]
         default: preview
 
 # The release.sh this workflow runs is the one at this commit of
@@ -113,6 +116,8 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: write
+    outputs:
+      released: ${{ steps.release.outputs.released }}
     # A queued publish is never replaced by a later one.
     concurrency:
       group: release-publish
@@ -197,3 +202,27 @@ jobs:
           startsWith(github.ref, 'refs/heads/release/') &&
           steps.release.outputs.released == 'yes'
         run: git push origin --delete "$GITHUB_REF_NAME"
+
+  deploy-site:
+    needs: publish
+    # always(): a deploy-site dispatch skips guard, test and publish, and a
+    # skipped need would skip this job with them. A release that was not cut
+    # (nothing to release) or that failed deploys nothing.
+    if: >-
+      always() && (
+        (needs.publish.result == 'success' && needs.publish.outputs.released == 'yes') ||
+        (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-site')
+      )
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: Call the Netlify build hook
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [[ -z "$NETLIFY_BUILD_HOOK" ]]; then
+            echo "::error::the NETLIFY_BUILD_HOOK secret is not set"
+            exit 1
+          fi
+          curl -fsS -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
+          echo "Netlify build triggered" >>"$GITHUB_STEP_SUMMARY"

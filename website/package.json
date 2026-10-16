@@ -1,0 +1,12 @@
+{
+  "name": "semantic-release-script-website",
+  "private": true,
+  "description": "The promotion website. Its tooling stays in this folder; the repository root stays Node-free.",
+  "scripts": {
+    "build": "tailwindcss -i tailwind.css -o style.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.2.2",
+    "tailwindcss": "4.2.2"
+  }
+}

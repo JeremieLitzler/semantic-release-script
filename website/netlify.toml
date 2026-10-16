@@ -1,0 +1,15 @@
+# The site is deployed by a build hook that the release workflow calls, not by
+# a push. The publish directory is relative to the base, and there is no build
+# command: the compiled stylesheet is committed.
+[build]
+  base = "website"
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src https://api.github.com; frame-ancestors 'none'"
