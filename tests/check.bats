@@ -192,12 +192,12 @@ setup() {
 
 @test "an option that shapes a release is refused with 1" {
   local option
-  for option in "--yes" "--dry-run" "--local" "--level patch" "--level-from release/patch/x" "--notes n.md" "--changelog c.md" "--summary s.env"; do
+  for option in "--yes" "--dry-run" "--local" "--level patch" "--notes n.md" "--changelog c.md" "--summary s.env"; do
     # shellcheck disable=SC2086
     run_check $option
 
     assert_failure 1
-    assert_output --partial "--check accepts only --trunk, --to and --since"
+    assert_output --partial "--check accepts only --trunk, --to, --since and --level-from"
   done
 }
 
@@ -260,4 +260,30 @@ setup() {
   assert_failure 3
   assert_output --partial "FAIL  the baseline is still on origin"
   assert_output --partial "the baseline v1.0.0 is not on origin"
+}
+
+@test "--level-from below the commits fails the report with its reason and fix, and a level at or above passes" {
+  tag_version v1.2.3
+  commit_change "feat!: drop the v1 authentication endpoints"
+  push_fixture
+  given_release v1.2.3
+  git branch -q release/patch/x
+  git branch -q release/major/x
+
+  run_check --level-from release/patch/x
+
+  assert_failure 3
+  assert_output --partial "FAIL  the branch name forces no level below the commits"
+  assert_output --partial "the branch name forces patch, below the major the commits imply"
+  assert_output --partial "rename the branch to release/major/<id>"
+
+  run_check --level-from release/major/x
+
+  assert_success
+  assert_output --partial "ok    the branch name forces no level below the commits"
+
+  run_check
+
+  assert_success
+  refute_output --partial "forces no level"
 }

@@ -143,7 +143,8 @@ Options:
                          release/ in release/<major|minor|patch>/<id>, or the
                          bare release/<major|minor|patch>. A name
                          with no level there changes nothing. Must be a branch,
-                         locally or on origin. Not with --level.
+                         locally or on origin. A level below the one
+                         the commits imply is refused. Not with --level.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
       --summary <file>  Write what the run decided to <file>, as key=value
@@ -151,7 +152,8 @@ Options:
       --check           Print the setup report instead of releasing: every
                          check of the preflight and every guard, each with its
                          reason and its fix. Decides no version and writes no
-                         file. Takes only --trunk, --to and --since.
+                         file. Takes only --trunk, --to, --since and
+                         --level-from.
   -h, --help            Show this help.
 
 Steps (a human gate sits before each one, unless --dry-run):
@@ -195,7 +197,7 @@ while [[ $# -gt 0 ]]; do
     --to)           TO_REF="${2:-}"; [[ -n $TO_REF ]] || die "--to needs a ref"; shift 2 ;;
     --trunk)        TRUNK="${2:-}"; [[ -n $TRUNK ]] || die "--trunk needs a name"; shift 2 ;;
     --level)        FORCE_LEVEL="${2:-}"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
-    --level-from)   LEVEL_FROM="${2:-}"; [[ -n $LEVEL_FROM ]] || die "--level-from needs a ref"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
+    --level-from)   LEVEL_FROM="${2:-}"; [[ -n $LEVEL_FROM ]] || die "--level-from needs a ref"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
@@ -207,7 +209,7 @@ done
 # A report that took --notes would leave a human believing it wrote the file.
 # Only the options that name the target mean anything to it.
 if [[ $CHECK_ONLY == true && ${#RELEASE_OPTIONS[@]} -gt 0 ]]; then
-  die "--check accepts only --trunk, --to and --since, not ${RELEASE_OPTIONS[0]}"
+  die "--check accepts only --trunk, --to, --since and --level-from, not ${RELEASE_OPTIONS[0]}"
 fi
 
 case "$FORCE_LEVEL" in
@@ -331,6 +333,8 @@ refusal_reason() {
       else
         printf '%s' " — every version tag is reachable, so check that --since names a release no older than ${target}"
       fi ;;
+    level-lowered)
+      printf '%s' "the branch name forces ${detail}, below the ${target} the commits imply: the release would publish less than the changes it carries — rename the branch to release/${target}/<id>, or to a name without a level to let the commits decide" ;;
     *)          printf '%s' "refused: $1" ;;
   esac
 }
@@ -716,7 +720,9 @@ scan_commits() {
   mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
 }
 
-# next_version -> LEVEL, NEW_VERSION and NEW_TAG, from the categories of the
+IMPLIED_LEVEL="" # the bump the commits decide, before any forcing
+
+# next_version -> IMPLIED_LEVEL, LEVEL, NEW_VERSION and NEW_TAG, from the categories of the
 # commits classified and the version the baseline carries.
 next_version() {
   LEVEL="patch"
@@ -727,6 +733,7 @@ next_version() {
       feature)  LEVEL="minor" ;;
     esac
   done
+  IMPLIED_LEVEL="$LEVEL"
   [[ -n $FORCE_LEVEL ]] && LEVEL="$FORCE_LEVEL"
 
   local major minor patch
@@ -747,6 +754,22 @@ check_tag_free() {
   if git rev-parse --verify --quiet "refs/tags/${NEW_TAG}" >/dev/null; then
     fail_check "$(refusal_reason tag-taken "$NEW_TAG")"
   fi
+}
+
+# check_level_not_lowered — a level forced by the branch name is not below the
+# one the commits imply. Forcing up is allowed (the v1.0.0 case), and so is an
+# explicit --level, which is the caller's own word rather than a name that may
+# have been cut for another range.
+check_level_not_lowered() {
+  [[ $FORCE_LEVEL_OPTION == "--level-from" && -n $FORCE_LEVEL ]] || return 0
+  local forced implied
+  forced=$(level_rank "$FORCE_LEVEL"); implied=$(level_rank "$IMPLIED_LEVEL")
+  (( forced >= implied ))     || fail_check "$(refusal_reason level-lowered "$FORCE_LEVEL" "$IMPLIED_LEVEL")"
+}
+
+# level_rank <level> -> a number that grows with the bump.
+level_rank() {
+  case "$1" in major) echo 3 ;; minor) echo 2 ;; *) echo 1 ;; esac
 }
 
 # version_tags -> every version tag in the repository, highest first. The glob
@@ -977,6 +1000,7 @@ run_setup_report() {
       report_check fail "the next tag is free" "" check_tag_free
       report_check fail "the baseline is still on origin" "" check_baseline_on_origin
       report_check fail "the baseline is the highest version tag" "" check_baseline_highest
+      [[ -z $LEVEL_FROM || -z $FORCE_LEVEL ]]         || report_check fail "the branch name forces no level below the commits" "" check_level_not_lowered
     fi
   fi
 }
@@ -1096,6 +1120,7 @@ else
   check_tag_free || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
   check_baseline_on_origin || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
   check_baseline_highest || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
+  check_level_not_lowered || stop "$EXIT_REFUSED" "$CHECK_FAILURE"
 fi
 
 gate "Continue to step 2 and build the release notes for ${NEW_TAG}?"

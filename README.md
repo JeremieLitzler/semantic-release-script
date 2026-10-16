@@ -28,11 +28,11 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--since <ref>` | Read the commits since `<ref>` instead of the last `v*` tag. |
 | `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
-| `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`, or the bare `release/major`, `release/minor` or `release/patch`. A name with no level there changes nothing. The value must be a branch, locally or on origin, or the run errors. Not with `--level`. |
+| `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`, or the bare `release/major`, `release/minor` or `release/patch`. A name with no level there changes nothing. A level below what the commits imply (`release/patch/<id>` over a `feat`) is refused with `3`; forcing up is allowed. The value must be a branch, locally or on origin, or the run errors. Not with `--level`, which is never refused for being lower. |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
-| `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to` and `--since`. |
+| `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to`, `--since` and `--level-from`. |
 
 ### Cutting a release
 
@@ -67,7 +67,7 @@ A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release 
 
 The setups it holds to and the ones it refuses, with the decision flow the report follows, are mapped in [docs/supported-setups.md](docs/supported-setups.md).
 
-It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
+It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and `--level-from`, which adds the check that a name-forced level is not below the commits', and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
 
 ### Exit codes
 
@@ -78,7 +78,7 @@ The script's contract with whatever runs it. A CI job reads the code rather than
 | `0` | Released, or previewed with `--dry-run` or `--local`. Answering `N` at a gate lands here too: nothing was released, and nothing went wrong. With `--check`: no check a release would refuse on failed. |
 | `1` | Error: a bad option, a ref that does not exist, a missing tool, a `gh` that is not logged in, a gate with no terminal to read, a push the remote rejected. |
 | `2` | Nothing to release: no commit in the range. The ordinary state of a trunk between releases, not a failure to escalate. |
-| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, a target commit the trunk does not contain, a baseline version tag that `origin` does not hold (deleted there, or a `--local` tag never pushed), or a baseline that is not the highest version tag already there (a stranded tag above it, or a `--since` older than the latest release). With `--check`: a check a release would refuse on failed. |
+| `3` | Refused by a guard: the repository's state rules the release out — the computed tag already existing, a shallow clone whose baseline is unreachable, tags that could not be fetched from `origin`, a target commit the trunk does not contain, a baseline version tag that `origin` does not hold (deleted there, or a `--local` tag never pushed), or a baseline that is not the highest version tag already there (a stranded tag above it, or a `--since` older than the latest release), or a level forced by the `--level-from` branch name that is below the one the commits imply. With `--check`: a check a release would refuse on failed. |
 
 Code `2` still prints `no commit to release in range '<range>'`, so a consumer grepping for that line keeps working until it switches to the code.
 
