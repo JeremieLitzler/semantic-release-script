@@ -6,6 +6,11 @@
   publish = "."
   command = ""
 
+  # Every dependency of the site is a devDependency (the Tailwind CLI, which the
+  # committed stylesheet makes unnecessary here), so production skips the install.
+  [build.environment]
+    NODE_ENV = "production"
+
 [[headers]]
   for = "/*"
   [headers.values]
