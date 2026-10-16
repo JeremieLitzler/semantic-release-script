@@ -138,6 +138,22 @@ resolve_with() {
   assert_output --partial 'NODE_ENV = "production"'
 }
 
+@test "netlify.toml skips every build that is not a build hook build, so a push or a pull request does not deploy" {
+  run cat "${TESTS_DIR}/../netlify.toml"
+
+  assert_output --partial 'ignore = "test -z \"$INCOMING_HOOK_TITLE\""'
+}
+
+@test "the ignore rule exits 0 (skip) without a hook title and 1 (build) with one" {
+  rule='test -z "$INCOMING_HOOK_TITLE"'
+
+  run env -u INCOMING_HOOK_TITLE bash -c "$rule"
+  assert_success
+
+  run env INCOMING_HOOK_TITLE=release bash -c "$rule"
+  assert_failure
+}
+
 @test "the site's tooling stays in its folder: the repository root has no package.json" {
   [[ -f "${SITE}/package.json" ]]
   [[ ! -e "${TESTS_DIR}/../package.json" ]]

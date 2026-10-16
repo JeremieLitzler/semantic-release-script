@@ -8,6 +8,11 @@
   publish = "."
   command = ""
 
+  # Only the build hook deploys. Exit 0 tells Netlify to skip the build, and the
+  # hook sets INCOMING_HOOK_TITLE, so pushes and pull requests (deploy previews)
+  # are skipped. Netlify's docs say ignore never cancels a hook-triggered build.
+  ignore = "test -z \"$INCOMING_HOOK_TITLE\""
+
   # Every dependency of the site is a devDependency (the Tailwind CLI, which the
   # committed stylesheet makes unnecessary here), so production skips the install.
   [build.environment]

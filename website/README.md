@@ -19,4 +19,4 @@ CI does not check that `style.css` matches a fresh build, so rebuild it before y
 
 ## Deploy
 
-`netlify.toml` sits at the repository root, the only place Netlify reads it without a dashboard base directory. It states the base and publish directories and that there is no build command. The release workflow calls the Netlify build hook after a release is cut, and its `deploy-site` dispatch input calls it without one.
+`netlify.toml` sits at the repository root, the only place Netlify reads it without a dashboard base directory. It states the base and publish directories and that there is no build command. An `ignore` rule skips every build that is not a build hook build, so pushes and pull requests do not deploy. The release workflow calls the Netlify build hook after a release is cut, and its `deploy-site` dispatch input calls it without one.
