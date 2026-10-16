@@ -21,7 +21,7 @@ jobs:
         with:
           submodules: true
 
-      # jq, the only other dev dependency, is preinstalled on the runner image.
+      # jq and node, the only other dev dependencies, are preinstalled on the runner image.
       # tests/live.bats shows as skipped: the live suite never runs in CI.
       - name: Run the bats suites
         run: tests/libs/bats-core/bin/bats tests/
