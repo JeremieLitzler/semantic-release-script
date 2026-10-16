@@ -1,6 +1,8 @@
-# The site is deployed by a build hook that the release workflow calls, not by
+# The website is deployed by a build hook that the release workflow calls, not by
 # a push. The publish directory is relative to the base, and there is no build
-# command: the compiled stylesheet is committed.
+# command: the compiled stylesheet is committed. Netlify reads this file only
+# at the repository root (or at a base set in the dashboard), so it lives here
+# and points at the site folder with base.
 [build]
   base = "website"
   publish = "."
