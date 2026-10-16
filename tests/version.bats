@@ -450,6 +450,7 @@ given_stranded_tag() {
   commit_change "fix: keep the cart total in sync"
   push_fixture
 
+  git branch -q release/major/20261015.1
   run_release --dry-run --level-from release/major/20261015.1
 
   assert_success
@@ -462,10 +463,12 @@ given_stranded_tag() {
   commit_change "feat!: drop the v1 authentication endpoints"
   push_fixture
 
+  git branch -q release/minor/x
   run_release --dry-run --level-from release/minor/x
   assert_success
   assert_line "Version         : 1.2.3 -> 1.3.0"
 
+  git branch -q release/patch/x
   run_release --dry-run --level-from release/patch/x
   assert_success
   assert_line "Version         : 1.2.3 -> 1.2.4"
@@ -476,6 +479,7 @@ given_stranded_tag() {
   commit_change "fix: keep the cart total in sync"
   push_fixture
 
+  git branch -q release/minor/x
   run_release --dry-run --level-from refs/heads/release/minor/x
 
   assert_success
@@ -490,6 +494,9 @@ given_stranded_tag() {
   local expected="$output"
 
   local name
+  for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major release/major-x/y; do
+    git branch -q "$name" 2>/dev/null || true
+  done
   for name in release/20261015.1 release/hotfix-login main release/mayor/x release/Major/x release/MAJOR/x release/major release/major-x/y; do
     run_release --dry-run --level-from "$name"
 
@@ -515,8 +522,40 @@ given_stranded_tag() {
   push_fixture
   given_release v1.2.3
 
+  git branch -q release/major/x
   run_release --dry-run --level-from release/major/x
 
   assert_failure 2
   assert_output --partial "no commit to release in range 'v1.2.3..HEAD'"
+}
+
+@test "--level-from refuses a name that is no branch, locally or on origin: 1" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release --dry-run --level-from release/major/nope
+
+  assert_failure 1
+  assert_output --partial "--level-from 'release/major/nope' is not a branch, locally or on origin"
+}
+
+@test "--level-from accepts a branch only origin holds" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+  git push -q origin HEAD:refs/heads/release/major/remote-only
+  git fetch -q origin
+
+  run_release --dry-run --level-from release/major/remote-only
+
+  assert_success
+  assert_line "Bump            : major (forced with --level-from)"
+}
+
+@test "--level-from refuses an empty value: 1" {
+  run_release --dry-run --level-from ""
+
+  assert_failure 1
+  assert_output --partial "--level-from needs a ref"
 }

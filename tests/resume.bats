@@ -181,6 +181,7 @@ half_publish() {
 @test "--level-from is ignored on a resume: the tag already carries the version" {
   half_publish
 
+  git branch -q release/major/x
   run_release --level-from release/major/x
 
   assert_success
