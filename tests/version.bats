@@ -464,10 +464,8 @@ given_a_fix_since_v1_2_3() {
   assert_line "Version         : 1.2.3 -> 2.0.0"
 }
 
-@test "--level-from reads minor and patch too, over the bump the commits decide" {
-  tag_version v1.2.3
-  commit_change "feat!: drop the v1 authentication endpoints"
-  push_fixture
+@test "--level-from reads minor and patch too, minor over the bump the commits decide" {
+  given_a_fix_since_v1_2_3
 
   git branch -q release/minor/x
   run_release --dry-run --level-from release/minor/x
@@ -476,6 +474,71 @@ given_a_fix_since_v1_2_3() {
 
   git branch -q release/patch/x
   run_release --dry-run --level-from release/patch/x
+  assert_success
+  assert_line "Version         : 1.2.3 -> 1.2.4"
+}
+
+# given_a_breaking_commit_since_v1_2_3 — a pushed trunk holding a breaking
+# commit past v1.2.3, which implies a major bump.
+given_a_breaking_commit_since_v1_2_3() {
+  tag_version v1.2.3
+  commit_change "feat!: drop the v1 authentication endpoints"
+  push_fixture
+}
+
+@test "--level-from refuses a level below what the commits imply: 3, in every mode that computes a version" {
+  given_a_breaking_commit_since_v1_2_3
+  git branch -q release/patch/x
+
+  local mode
+  for mode in "" "--dry-run" "--local"; do
+    run_release $mode --summary "${BATS_TEST_TMPDIR}/s.env" --level-from release/patch/x
+
+    assert_failure 3
+    assert_output --partial "the branch name forces patch, below the major the commits imply"
+    assert_output --partial "rename the branch to release/major/<id>"
+    [ ! -e "${BATS_TEST_TMPDIR}/s.env" ]
+    [ -z "$(git tag --list v1.2.4)" ]
+  done
+}
+
+@test "--level-from refuses a minor below a breaking commit" {
+  given_a_breaking_commit_since_v1_2_3
+  git branch -q release/minor/x
+
+  run_release --dry-run --level-from release/minor/x
+
+  assert_failure 3
+  assert_output --partial "the branch name forces minor, below the major the commits imply"
+}
+
+@test "--level-from refuses a patch below a feature" {
+  tag_version v1.2.3
+  commit_change "feat: export the orders as CSV"
+  push_fixture
+  git branch -q release/patch/x
+
+  run_release --dry-run --level-from release/patch/x
+
+  assert_failure 3
+  assert_output --partial "the branch name forces patch, below the minor the commits imply"
+}
+
+@test "--level-from forcing up is allowed" {
+  given_a_fix_since_v1_2_3
+  git branch -q release/major/x
+
+  run_release --dry-run --level-from release/major/x
+
+  assert_success
+  assert_line "Version         : 1.2.3 -> 2.0.0"
+}
+
+@test "--level below the commits keeps publishing the lower level" {
+  given_a_breaking_commit_since_v1_2_3
+
+  run_release --dry-run --level patch
+
   assert_success
   assert_line "Version         : 1.2.3 -> 1.2.4"
 }
