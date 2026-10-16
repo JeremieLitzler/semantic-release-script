@@ -12,7 +12,7 @@ Uses the five default triage labels: `needs-triage`, `needs-info`, `ready-for-ag
 
 ### Tests
 
-Testing a change to `scripts/release/release.sh`: run `tests/libs/bats-core/bin/bats tests/` (after `git submodule update --init`). Golden files, the fake `gh` and the opt-in live suite are explained in README's "Testing it".
+Testing a change to `scripts/release/release.sh`: run `tests/libs/bats-core/bin/bats tests/` (after `git submodule update --init`). On Windows, run it in WSL (`wsl -e bash -lc 'cd /mnt/e/Git/GitHub/semantic-release-script && tests/libs/bats-core/bin/bats tests/'`): bats fails under Git Bash on the `E:/` path. Golden files, the fake `gh` and the opt-in live suite are explained in README's "Testing it".
 
 ### Domain docs
 

@@ -10,6 +10,8 @@ The parsing is in `release.sh`, behind a new option `--level-from <ref>` that ta
 
 The name-derived level is stricter than the explicit `--level`: if the name forces a level below what the commits imply (`release/patch/<id>` over a `feat`), the run is refused with exit `3`, in every mode that computes a version (a real run, `--dry-run`, `--local` and `--check`). Forcing up is allowed, which is the v1.0.0 case. `--level` keeps today's behaviour. Giving both `--level` and `--level-from` is a command-line mistake (exit `1`). On a resume, `--level-from` is ignored with a warning, like `--level`. A forced level over a range with no commit still exits `2`, "nothing to release". There is no dispatch input: only the branch name carries the level, and a dispatch from a `release/major/...` ref honours its name. The preview job passes the ref name too, so a dispatch preview from such a ref shows the forced version before the publish; on `main` nothing changes.
 
+The value given to `--level-from` must be a branch, found locally (`refs/heads/<name>`) or on origin (`refs/remotes/origin/<name>`), whether or not its name carries a level; otherwise the run is refused with exit `1`, as is an empty value. This was settled while implementing #78, not in a grilling round: an empty `github.head_ref` on a `push` event, or a typo like `release/mayor/x` mapping to no branch, is a wrong usage rather than a name with no level. It narrows "behaves exactly as today" above to names of existing branches.
+
 Hotfixes are out of scope: the patch-only path is `release/patch/<id>` cut from `main`, which the strictness above already holds to patch-only commits. A fix from a tag is the maintenance-line question closed in #13 and gets its own ticket if it ever matters.
 
 v1.0.0 is cut without an intermediate v0.5.0. The implementation is typed `feat:`; once it is merged to `main`, `RELEASE_SCRIPT_REF` moves to the SHA of that merge commit (not a version tag, a one-time bend of the pin rule), then `release/major/<id>` is pushed from `main`. The range is v0.4.0 to `main`, so the v1.0.0 notes carry the feature under `Features` and the `ci:` commits under `Others`. You accepted that a forced level never changes the range, and asked that this be documented for future users.
@@ -44,5 +46,7 @@ The contract is documented in README "Cutting a release", in `CONTEXT.md` (a new
 - Q21 (v06): the summary of a major is a convention for every major.
 - Q22 (v06): no tooling links the GitHub release to it; the README does.
 - Q23 (v06): the README recommends an outline, with no template file.
+
+- Q24 (implementation of #78, no round): `--level-from` must name an existing branch, locally or on origin, and an empty value is refused, both with exit `1`.
 
 Superseded: Q11 by Q12, then Q13 by Q19; Q18 completed by Q21 to Q23 (the documentation it asked for is the major summary).
