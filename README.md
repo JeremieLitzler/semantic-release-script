@@ -41,7 +41,7 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 - **Preview**: a push to `main`, or a manual dispatch left on `preview`, dry-runs the release and writes the pending version and notes to the job summary. Nothing is written.
 - **Publish**: push a `release/*` branch cut from `main`, or dispatch the workflow with `publish` from `main` or a `release/*` branch. The tag and the GitHub release are created, and a push-triggered run then deletes the `release/*` branch.
 
-Publish refuses a `release/*` ref that `main` does not contain, deletes an orphaned remote tag (no GitHub release carries it) left on that commit by a failed run so the re-push re-cuts the release, and does not start until the bats suite is green for that commit.
+Publish refuses a `release/*` ref that `main` does not contain, and does not start until the bats suite is green for that commit.
 
 The workflow runs `release.sh` fetched at the commit named by `RELEASE_SCRIPT_REF` at the top of the file, not the copy on the commit being released. It points at the commit the `v1.0.0` tag targets, named in a comment above it, until the next pin move. To move the pin, set `RELEASE_SCRIPT_REF` to the SHA of the commit to run (for a version tag, `git rev-parse 'vX.Y.Z^{commit}'`) and update the comment to name it, then merge that change: the next push to `main` previews with it.
 
@@ -272,6 +272,8 @@ Three states look alike from the outside, and only the middle one resumes:
 | On this machine only | Never pushed, so what it is waiting for is step 3, not step 4. Left alone — push it, or delete it and let the next run re-cut it. |
 
 Every guard still applies, the containment one included, and it runs before the resume is even recognised as one. The tag it would publish is written already, so the guard undoes nothing there — but a release on a stranded tag is one more thing to unpick once the topology is put right, and the fix the refusal names is the same either way.
+
+**The guarantee, and the workaround it retires.** A tag on the target that `origin` holds and GitHub has no release for is finished by the next run, with the same tag and the same notes. A workflow step that deletes such a tag before `release.sh` runs is not needed, and is harmful: it removes the tag the script would resume, so the run re-cuts it instead, with a new tag object and, if commits landed in between, possibly another version. Delete the step. The one window the script does not close is the one below, and the step never closed it either: it only looked at tags on `HEAD`.
 
 A resume is scoped to the **target**. Commits pushed on top of a half-published tag move `HEAD` past it, and a plain re-run then tags and releases the next version, leaving the older tag without a release for good. `--to <the tag>` resumes it.
 

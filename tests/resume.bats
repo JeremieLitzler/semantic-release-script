@@ -188,3 +188,19 @@ half_publish() {
   assert_output --partial "--level-from is ignored on a resume: v1.1.0 already carries the version"
   assert_line "Released v1.1.0"
 }
+
+@test "a commit pushed after the failed run is not resumed: the next version is cut and the older tag stays without a release" {
+  half_publish
+  commit_change "fix: keep the cart total in sync"
+  push_fixture
+
+  run_release
+
+  assert_success
+  refute_line --partial "resuming"
+  assert_line "Released v1.1.1"
+
+  run gh_calls
+  refute_line --partial "release create v1.1.0"
+  assert_line --regexp '^release create v1\.1\.1 '
+}
