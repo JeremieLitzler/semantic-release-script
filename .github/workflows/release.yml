@@ -140,26 +140,6 @@ jobs:
             exit 1
           fi
 
-      - name: Delete an orphaned tag a failed run left on this commit
-        run: |
-          git fetch --tags --force origin
-          for tag in $(git tag --points-at HEAD --list 'v*'); do
-            if gh release view "$tag" >"$RUNNER_TEMP/rv.out" 2>&1; then
-              continue
-            fi
-            # Only "not found" proves an orphan; any other failure is an API
-            # or auth problem, and deleting on it could strand a real release.
-            if ! grep -q "release not found" "$RUNNER_TEMP/rv.out"; then
-              echo "::error::could not tell whether $tag has a release: $(cat "$RUNNER_TEMP/rv.out")"
-              exit 1
-            fi
-            if true; then
-              echo "Deleting orphaned tag $tag (no GitHub release carries it)"
-              git push origin --delete "refs/tags/$tag"
-              git tag -d "$tag"
-            fi
-          done
-
       - name: Fetch the pinned release.sh
         run: |
           curl -fsSL "https://raw.githubusercontent.com/JeremieLitzler/semantic-release-script/${RELEASE_SCRIPT_REF}/scripts/release/release.sh" \
