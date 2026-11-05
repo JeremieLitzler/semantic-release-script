@@ -97,3 +97,17 @@ setup() {
   assert_failure 1
   assert_output "tag v9.9.9 doesn't exist in the repo fixture-owner/fixture-repo, aborting due to --verify-tag flag"
 }
+
+@test "--dry-run and --local honour --exclude-paths when they compute the version" {
+  commit_files "feat!: replace the March run" output/march.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output'
+  assert_success
+  assert_line "Version         : 1.0.0 -> 1.1.0"
+
+  run_release --local --exclude-paths 'output'
+  assert_success
+  assert_line "Version         : 1.0.0 -> 1.1.0"
+  assert_local_tag v1.1.0 HEAD
+}

@@ -268,3 +268,16 @@ refute_summary() {
   ( set -a; . "$SUMMARY"; [[ $version == 1.1.0 && $released == no ]] ) \
     || fail "the summary does not source into the five variables"
 }
+
+@test "--exclude-paths adds no key to the summary" {
+  tag_version v1.0.0
+  commit_files "feat: export the orders as CSV" src/export.txt
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output' --summary "$SUMMARY"
+
+  assert_success
+  run cut -d= -f1 "$SUMMARY"
+  assert_output "$(printf 'tag\nversion\nbump\nbaseline\nreleased')"
+}

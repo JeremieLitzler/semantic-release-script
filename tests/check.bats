@@ -197,7 +197,7 @@ setup() {
     run_check $option
 
     assert_failure 1
-    assert_output --partial "--check accepts only --trunk, --to, --since and --level-from"
+    assert_output --partial "--check accepts only --trunk, --to, --since, --level-from and --exclude-paths"
   done
 }
 
@@ -286,4 +286,27 @@ setup() {
 
   assert_success
   refute_output --partial "forces no level"
+}
+
+@test "--check accepts --exclude-paths and weighs the version on the commits that remain" {
+  tag_version v1.0.0
+  commit_files "fix: keep the cart total in sync" src/a.txt
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_check --exclude-paths 'output'
+
+  assert_success
+  assert_output --partial "the next tag is free"
+}
+
+@test "--check on a range of only excluded commits reports nothing to release" {
+  tag_version v1.0.0
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_check --exclude-paths 'output'
+
+  assert_success
+  assert_output --partial "not weighed: no commit to release in range"
 }

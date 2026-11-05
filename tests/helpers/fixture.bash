@@ -120,3 +120,24 @@ build_reference_dataset() {
   REFERENCE_COMMITS[21]=$(git rev-parse HEAD)                                                 # 21
   git branch -q -D contributing-guide
 }
+
+# commit_files <subject> <path>... — commit one line appended to each path, the
+# folders created as needed. For the history that --exclude-paths is told apart
+# on, where what a commit touches matters more than what it says.
+commit_files() {
+  local subject="$1" path
+  shift
+  for path in "$@"; do
+    mkdir -p "$(dirname "$path")"
+    printf -- '- %s\n' "$subject" >>"$path"
+    git add -- "$path"
+  done
+  fixture_git commit -q -m "$subject"
+}
+
+# commit_rename <subject> <from> <to> — commit the move of a tracked file.
+commit_rename() {
+  mkdir -p "$(dirname "$3")"
+  git mv -- "$2" "$3"
+  fixture_git commit -q -m "$1"
+}

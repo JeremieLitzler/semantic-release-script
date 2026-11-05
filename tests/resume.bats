@@ -204,3 +204,15 @@ half_publish() {
   refute_line --partial "release create v1.1.0"
   assert_line --regexp '^release create v1\.1\.1 '
 }
+
+@test "a resume honours --exclude-paths and rebuilds the same notes" {
+  commit_files "feat: record the March run" output/march.txt
+  half_publish
+
+  run_release --exclude-paths 'output'
+
+  assert_success
+  assert_line --partial "Commits excluded : 1"
+  run cat "$(published_notes_file v1.1.0)"
+  refute_output --partial "March"
+}

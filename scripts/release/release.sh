@@ -43,6 +43,8 @@ SINCE_REF=""
 TO_REF=""
 FORCE_LEVEL=""
 LEVEL_FROM=""
+EXCLUDE_PATHS_GIVEN=false
+EXCLUDED_PATHS=() # the excluded paths, normalised: no leading ./, no trailing /
 FORCE_LEVEL_OPTION="--level" # how the run names the option that forced the level, in what it says only
 NOTES_OUT=""
 CHANGELOG_OUT=""
@@ -145,6 +147,14 @@ Options:
                          with no level there changes nothing. Must be a branch,
                          locally or on origin. A level below the one
                          the commits imply is refused. Not with --level.
+      --exclude-paths <a|b>
+                         Keep the commits that only touch these paths out of
+                         the notes and the bump. One value, entries separated
+                         by |, so quote it in a shell: 'output|sources'. An
+                         entry is a literal path from the repository root, a
+                         folder or a file, matched by whole path component
+                         and case-sensitively. Given once. A range made only
+                         of such commits has nothing to release.
       --notes <file>    Also write the release notes to <file>.
       --changelog <f>   Prepend the release to the changelog <f> (newest first).
       --summary <file>  Write what the run decided to <file>, as key=value
@@ -152,8 +162,8 @@ Options:
       --check           Print the setup report instead of releasing: every
                          check of the preflight and every guard, each with its
                          reason and its fix. Decides no version and writes no
-                         file. Takes only --trunk, --to, --since and
-                         --level-from.
+                         file. Takes only --trunk, --to, --since,
+                         --level-from and --exclude-paths.
   -h, --help            Show this help.
 
 Steps (a human gate sits before each one, unless --dry-run):
@@ -187,6 +197,33 @@ EOF
 
 # ----------------------------------------------------------------------- args
 
+# parse_exclude_paths <value> -> EXCLUDED_PATHS: the entries of the value, split
+# on |, each normalised. A mistake in the value dies with exit 1, so a typo
+# cannot exclude everything or reach outside the repository.
+parse_exclude_paths() {
+  local value="$1" entry component
+  [[ $EXCLUDE_PATHS_GIVEN == false ]] \
+    || die "--exclude-paths was given more than once: list the paths in one value, separated by | (--exclude-paths 'output|sources')"
+  EXCLUDE_PATHS_GIVEN=true
+  [[ -n $value ]] || die "--exclude-paths needs a value: the paths separated by |"
+  local -a entries
+  # read drops a trailing empty field (a|), so a sentinel entry follows the
+  # value and is unset again: the empty entry stays visible to the check below.
+  IFS='|' read -r -a entries <<<"${value}|x"
+  unset 'entries[-1]'
+  for entry in "${entries[@]}"; do
+    [[ -n $entry ]] || die "--exclude-paths has an empty entry in '${value}'"
+    [[ $entry != /* ]] || die "--exclude-paths entry '${entry}' is absolute: name it from the repository root"
+    while [[ $entry == ./* ]]; do entry="${entry#./}"; done
+    while [[ $entry == */ ]]; do entry="${entry%/}"; done
+    [[ -n $entry && $entry != "." ]] || die "--exclude-paths entry '.' would exclude everything"
+    for component in ${entry//\// }; do
+      [[ $component != ".." ]] || die "--exclude-paths entry '${entry}' reaches outside the repository"
+    done
+    EXCLUDED_PATHS+=("$entry")
+  done
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check)        CHECK_ONLY=true; shift ;;
@@ -198,6 +235,7 @@ while [[ $# -gt 0 ]]; do
     --trunk)        TRUNK="${2:-}"; [[ -n $TRUNK ]] || die "--trunk needs a name"; shift 2 ;;
     --level)        FORCE_LEVEL="${2:-}"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --level-from)   LEVEL_FROM="${2:-}"; [[ -n $LEVEL_FROM ]] || die "--level-from needs a ref"; shift 2 ;;
+    --exclude-paths) parse_exclude_paths "${2:-}"; shift 2 ;;
     --notes)        NOTES_OUT="${2:-}"; [[ -n $NOTES_OUT ]] || die "--notes needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --changelog)    CHANGELOG_OUT="${2:-}"; [[ -n $CHANGELOG_OUT ]] || die "--changelog needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
     --summary)      SUMMARY_OUT="${2:-}"; [[ -n $SUMMARY_OUT ]] || die "--summary needs a path"; RELEASE_OPTIONS+=("$1"); shift 2 ;;
@@ -209,7 +247,7 @@ done
 # A report that took --notes would leave a human believing it wrote the file.
 # Only the options that name the target mean anything to it.
 if [[ $CHECK_ONLY == true && ${#RELEASE_OPTIONS[@]} -gt 0 ]]; then
-  die "--check accepts only --trunk, --to, --since and --level-from, not ${RELEASE_OPTIONS[0]}"
+  die "--check accepts only --trunk, --to, --since, --level-from and --exclude-paths, not ${RELEASE_OPTIONS[0]}"
 fi
 
 case "$FORCE_LEVEL" in
@@ -707,8 +745,29 @@ classify_commits() {
   done
 }
 
-# scan_commits <target ref> -> RANGE and COMMITS: the commits the baseline
-# leaves out of the target, merges aside. Shared with the setup report, which
+declare -a EXCLUDED_COMMITS=()
+
+# is_excluded_commit <hash> — true when the commit touches at least one file and
+# every file it touches is under an excluded path. Rename detection is off, so a
+# rename is a delete and an add and both ends count.
+is_excluded_commit() {
+  (( ${#EXCLUDED_PATHS[@]} > 0 )) || return 1
+  local -a files
+  mapfile -d '' -t files < <(git diff-tree --root --no-commit-id -r -z --no-renames --name-only "$1")
+  (( ${#files[@]} > 0 )) || return 1
+  local file entry covered
+  for file in "${files[@]}"; do
+    covered=false
+    for entry in "${EXCLUDED_PATHS[@]}"; do
+      if [[ $file == "$entry" || $file == "$entry"/* ]]; then covered=true; break; fi
+    done
+    [[ $covered == true ]] || return 1
+  done
+}
+
+# scan_commits <target ref> -> RANGE, COMMITS and EXCLUDED_COMMITS: the commits
+# the baseline leaves out of the target, merges aside, split into those to
+# release and the excluded commits. Shared with the setup report, which
 # weighs the version a release would compute without printing it.
 scan_commits() {
   local target="$1"
@@ -717,7 +776,20 @@ scan_commits() {
   else
     RANGE="${target}"
   fi
-  mapfile -t COMMITS < <(git log --no-merges --format=%H "$RANGE")
+  local -a scanned
+  mapfile -t scanned < <(git log --no-merges --format=%H "$RANGE")
+  COMMITS=() EXCLUDED_COMMITS=()
+  local hash
+  # Guarded: bash 4.3 and older call an empty array unbound under set -u.
+  if (( ${#scanned[@]} > 0 )); then
+    for hash in "${scanned[@]}"; do
+      if is_excluded_commit "$hash"; then
+        EXCLUDED_COMMITS+=("$hash")
+      else
+        COMMITS+=("$hash")
+      fi
+    done
+  fi
 }
 
 IMPLIED_LEVEL="" # the bump the commits decide, before any forcing
@@ -1105,11 +1177,21 @@ if [[ $TO_REF != "HEAD" ]]; then
   fi
 fi
 info "Commits scanned : ${#COMMITS[@]}"
+if [[ $EXCLUDE_PATHS_GIVEN == true ]]; then
+  excluded_list=$(printf ', %s' "${EXCLUDED_PATHS[@]}")
+  info "Commits excluded : ${#EXCLUDED_COMMITS[@]} (only under: ${excluded_list:2})"
+fi
 info ""
 for i in "${!C_HASH[@]}"; do
-  printf '  %s%-9s%s %s %s%s%s\n' \
-    "$YELLOW" "${C_CATEGORY[$i]}" "$RESET" "${C_SHORT[$i]}" "$DIM" "${C_SUBJECT[$i]}" "$RESET"
+  printf '  %s%-9s%s %s %s%s%s
+'     "$YELLOW" "${C_CATEGORY[$i]}" "$RESET" "${C_SHORT[$i]}" "$DIM" "${C_SUBJECT[$i]}" "$RESET"
 done
+if (( ${#EXCLUDED_COMMITS[@]} > 0 )); then
+  for hash in "${EXCLUDED_COMMITS[@]}"; do
+    printf '  %s%-9s %s %s%s
+' "$DIM" "excluded" "$(git rev-parse --short "$hash")" "$(git show -s --format=%s "$hash")" "$RESET"
+  done
+fi
 info ""
 if [[ $RESUMING == true ]]; then
   info "Version         : ${BOLD}${GREEN}${NEW_VERSION}${RESET} (read off ${NEW_TAG}, which origin already holds)"
