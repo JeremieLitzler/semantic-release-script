@@ -630,3 +630,110 @@ given_a_breaking_commit_since_v1_2_3() {
   assert_line "Bump            : major (forced with --level-from)"
   assert_line "Version         : 1.2.3 -> 2.0.0"
 }
+
+# --exclude-paths: an excluded commit counts neither in the notes nor in the bump.
+
+@test "an excluded feat does not raise the bump" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output|sources'
+
+  assert_success
+  assert_line "Bump            : patch"
+  assert_line "Version         : 1.2.3 -> 1.2.4"
+  assert_line "Commits scanned : 1"
+  assert_line "Commits excluded : 1 (only under: output, sources)"
+}
+
+@test "an excluded feat! does not raise the bump to major" {
+  tag_version v1.2.3
+  commit_change "fix: keep the cart total in sync"
+  commit_files "feat!: replace the March run" sources/march.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output|sources'
+
+  assert_success
+  assert_line "Version         : 1.2.3 -> 1.2.4"
+}
+
+@test "a feat touching an excluded path and another path counts in the bump in full" {
+  tag_version v1.2.3
+  commit_files "feat: record the March run" output/march.txt README.md
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output|sources'
+
+  assert_success
+  assert_line "Bump            : minor"
+  assert_line "Commits excluded : 0 (only under: output, sources)"
+}
+
+@test "an entry is anchored at the root, whole-component and case-sensitive" {
+  tag_version v1.2.3
+  commit_files "feat: nested" docs/output/a.txt
+  commit_files "feat: other case" Output/a.txt
+  commit_files "feat: longer name" output-old/a.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output'
+
+  assert_success
+  assert_line "Commits scanned : 3"
+  assert_line "Commits excluded : 0 (only under: output)"
+}
+
+@test "an entry may be a file, and ./ and a trailing slash are tolerated" {
+  tag_version v1.2.3
+  commit_files "feat: changelog" CHANGELOG.md
+  commit_files "feat: run" output/a.txt
+  commit_files "fix: keep" README.md
+  push_fixture
+
+  run_release --dry-run --exclude-paths './output/|CHANGELOG.md'
+
+  assert_success
+  assert_line "Bump            : patch"
+  assert_line "Commits excluded : 2 (only under: output, CHANGELOG.md)"
+}
+
+@test "a rename counts both ends: out of an excluded path stays, inside one is excluded" {
+  commit_files "docs: seed" output/a.txt output/b.txt
+  tag_version v1.2.3
+  commit_rename "feat: promote a run" output/a.txt kept.txt
+  commit_rename "feat: tidy the runs" output/b.txt output/c.txt
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output'
+
+  assert_success
+  assert_line "Commits scanned : 1"
+  assert_line "Commits excluded : 1 (only under: output)"
+  assert_line "Bump            : minor"
+}
+
+@test "a commit touching no file is kept" {
+  tag_version v1.2.3
+  fixture_git commit -q --allow-empty -m "feat: an empty commit"
+  push_fixture
+
+  run_release --dry-run --exclude-paths 'output'
+
+  assert_success
+  assert_line "Bump            : minor"
+}
+
+@test "without --exclude-paths the output has no excluded line" {
+  tag_version v1.2.3
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_release --dry-run
+
+  assert_success
+  assert_line "Bump            : minor"
+  refute_output --partial "Commits excluded"
+}

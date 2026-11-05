@@ -99,3 +99,11 @@ setup() {
   assert_failure 3
   assert_output --partial "the baseline v1.0.0 is not the highest version tag in the repository, v1.5.0"
 }
+
+@test "--to and --since leave out the same excluded commits" {
+  run_release --to "${REFERENCE_COMMITS[8]}" --exclude-paths 'CHANGES.md|README.md'
+  assert_failure 2
+
+  run_release --since "${REFERENCE_COMMITS[4]}" --to "${REFERENCE_COMMITS[8]}" --exclude-paths 'CHANGES.md|README.md'
+  assert_failure 2
+}

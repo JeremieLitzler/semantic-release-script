@@ -58,3 +58,16 @@ setup() {
   assert_success
   refute_gh_call "api "
 }
+
+@test "an excluded commit is absent from the notes and a mixed one keeps its section" {
+  tag_version v1.0.0
+  commit_files "feat: record the March run" output/march.txt
+  commit_files "feat: export the orders as CSV" src/export.txt output/march.txt
+  commit_files "fix: keep the cart total in sync" sources/a.txt
+  push_fixture
+
+  run_release --exclude-paths 'output|sources'
+
+  assert_success
+  assert_golden "$(published_notes_file v1.1.0)" exclude-paths-notes.md
+}

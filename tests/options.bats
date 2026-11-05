@@ -269,3 +269,24 @@ setup() {
   assert_output --partial "--trunk <name>"
   refute_output --partial "Version         :"
 }
+
+@test "--exclude-paths refuses an empty value, entry, '.', an absolute or '..' entry with exit 1" {
+  local value
+  for value in '' 'a||b' '|a' 'a|' '.' './' '/abs' 'a/../b' '..'; do
+    run bash "$RELEASE_SH" --dry-run --exclude-paths "$value"
+    assert_failure 1
+    assert_output --partial "--exclude-paths"
+  done
+}
+
+@test "--exclude-paths given twice is refused and says to list the paths with |" {
+  run bash "$RELEASE_SH" --dry-run --exclude-paths a --exclude-paths b
+  assert_failure 1
+  assert_output --partial "separated by |"
+}
+
+@test "--help describes --exclude-paths" {
+  run bash "$RELEASE_SH" --help
+  assert_success
+  assert_output --partial "--exclude-paths <a|b>"
+}

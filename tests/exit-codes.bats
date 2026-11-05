@@ -139,3 +139,16 @@ setup() {
   PATH=$(path_without git) run bash "$RELEASE_SH" --check
   assert_failure 1
 }
+
+@test "a range of only excluded commits exits 2, even under --level and --level-from" {
+  tag_version v1.0.0
+  commit_files "feat: record the March run" output/march.txt
+  push_fixture
+
+  run_release --exclude-paths 'output'
+  assert_failure 2
+  assert_output --partial "no commit to release in range"
+
+  run_release --exclude-paths 'output' --level major
+  assert_failure 2
+}

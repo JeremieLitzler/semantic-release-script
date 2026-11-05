@@ -29,10 +29,11 @@ It is the remote a dry run leaves alone, not your disk. `--notes`, `--changelog`
 | `--trunk <name>` | The branch releases are cut from, instead of GitHub's default branch. |
 | `--level <level>` | Force the bump: `major`, `minor` or `patch`. |
 | `--level-from <ref>` | Force the bump from a branch name: the segment right after `release/` in `release/major/<id>`, `release/minor/<id>` or `release/patch/<id>`, or the bare `release/major`, `release/minor` or `release/patch`. A name with no level there changes nothing. A level below what the commits imply (`release/patch/<id>` over a `feat`) is refused with `3`; forcing up is allowed. The value must be a branch, locally or on origin, or the run errors. Not with `--level`, which is never refused for being lower. |
+| `--exclude-paths <a\|b>` | Keep the commits that only touch these paths out of the notes and the bump. One value, entries separated by `\|`, quoted in a shell. See [Excluding paths](#excluding-paths). |
 | `--notes <file>` | Also write the release notes to `<file>`. |
 | `--changelog <file>` | Prepend the release to `<file>`, newest release on top. |
 | `--summary <file>` | Write what the run decided to `<file>`, as `key=value` lines. |
-| `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to`, `--since` and `--level-from`. |
+| `--check` | Print the setup report instead of releasing. Takes only `--trunk`, `--to`, `--since`, `--level-from` and `--exclude-paths`. |
 
 ### Cutting a release
 
@@ -93,6 +94,28 @@ The first one is [docs/release-1.0.0.md](docs/release-1.0.0.md).
 
 - **A preview dispatched from a tag fails with `--level-from '<tag>' is not a branch, locally or on origin`.** The workflow passes the ref name to `--level-from`, which accepts a branch only. Dispatch the preview from `main` or from a `release/*` branch. This comes from the script's check; it has not been reproduced on a runner.
 
+### Excluding paths
+
+`--exclude-paths` keeps the commits that only touch some paths out of the release. A commit whose every touched file is under an **excluded path** is an **excluded commit**: it is absent from the notes and does not count in the bump. A commit that also touches any other path stays under its usual section and counts in the bump in full. A range made only of excluded commits has nothing to release and exits `2`.
+
+```bash
+release.sh --exclude-paths 'output|sources'
+```
+
+- **One value, entries separated by `|`.** Quote it in a shell, or `|` is read as a pipe. The option is given once: giving it twice exits `1`.
+- **Entries are literal paths.** No regex, no glob: `*`, `?` and `[` mean themselves.
+- **Anchored at the repository root.** `output` covers `output/` and everything under it, not `docs/output`. List `docs/output` as well if you want it excluded too.
+- **Whole path components.** `output` does not cover `output-old/`.
+- **A folder or a single file.** `CHANGELOG.md` is a valid entry.
+- **Case-sensitive, as git paths are.** `Output` and `output` are two different paths: `output` excludes nothing under `Output/`. A mistyped case excludes nothing, and the `Commits excluded : 0` line of step 1 is how you see it.
+- **Tolerated:** a leading `./` and trailing slashes, so `./output/` means `output`.
+- **Refused with exit `1`:** an empty value, an empty entry (`a||b`, `|a`, `a|`), `.`, an absolute entry and an entry with a `..` component. An entry that matches nothing is accepted.
+- **Renames count both ends.** A commit that moves a file out of or into an excluded path touches a path that is not excluded, so it stays. A commit that touches no file stays too.
+
+When the option is given, step 1 prints `Commits excluded : N (only under: ...)` and each excluded commit after the kept ones. The release summary has no new key.
+
+`--dry-run`, `--local`, `--to`, `--since` and `--check` honour the option. A resume of a half-published release honours it too, so the retry must pass the same value or it publishes different notes than the first run wrote.
+
 ### Checking your setup
 
 ```bash
@@ -115,7 +138,7 @@ A check is `ok`, a `warn` (a release goes ahead and warns), a `FAIL` (a release 
 
 The setups it holds to and the ones it refuses, with the decision flow the report follows, are mapped in [docs/supported-setups.md](docs/supported-setups.md).
 
-It accepts only the options that name the target, `--trunk`, `--to` and `--since`, and `--level-from`, which adds the check that a name-forced level is not below the commits', and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
+It accepts only the options that name the target, `--trunk`, `--to` and `--since`, `--exclude-paths`, which weighs the version on the commits that remain, and `--level-from`, which adds the check that a name-forced level is not below the commits', and exits `1` on any other, so nobody assumes `--notes` wrote a file. It decides no version and writes no file or summary. It runs the same `git fetch --tags origin` a release does, so the only thing it writes is local tag refs. It exits `0` when no check a release would refuse on fails (warnings allowed), `3` when one does, and `1` when it cannot run at all: a bad option, a ref that does not exist, no `git` or `gh` to evaluate with. A `gh` that is not logged in is a failing check, so `3`.
 
 ### Exit codes
 
@@ -367,7 +390,7 @@ Each test builds a throwaway repository in a temp dir, with a bare repository as
 
 | File | Covers |
 | --- | --- |
-| `tests/version.bats` | the bump each commit type causes, the baseline, the first release, `--level`, `--level-from` |
+| `tests/version.bats` | the bump each commit type causes, the baseline, the first release, `--level`, `--level-from`, `--exclude-paths` bump |
 | `tests/notes.bats` | the notes: sections, issue titles, the pull request and missing number fallbacks, dedupe by issue |
 | `tests/replay.bats` | `--since` and `--to` |
 | `tests/publish.bats` | the tag and its push, the release, `--dry-run`, `--local` |
