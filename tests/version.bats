@@ -646,6 +646,7 @@ given_a_breaking_commit_since_v1_2_3() {
   assert_line "Version         : 1.2.3 -> 1.2.4"
   assert_line "Commits scanned : 1"
   assert_line "Commits excluded : 1 (only under: output, sources)"
+  assert_line --regexp '^  excluded  [0-9a-f]+ feat: record the March run$'
 }
 
 @test "an excluded feat! does not raise the bump to major" {

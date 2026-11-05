@@ -151,4 +151,9 @@ setup() {
 
   run_release --exclude-paths 'output' --level major
   assert_failure 2
+
+  git switch -q -c release/major/x
+  git push -q origin release/major/x
+  run_release --exclude-paths 'output' --level-from release/major/x
+  assert_failure 2
 }
