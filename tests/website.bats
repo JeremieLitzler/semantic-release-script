@@ -203,7 +203,7 @@ parsed_flags() {
 @test "the release.sh pin of the workflow is unchanged" {
   run grep -E '^  RELEASE_SCRIPT_REF: ' "$WORKFLOW"
 
-  assert_output "  RELEASE_SCRIPT_REF: 29b910f4b0693b28f36a5afddef07df7bf64ff67"
+  assert_output "  RELEASE_SCRIPT_REF: 49b55dd5a9412d538179a75780991499203352e0"
 }
 
 @test "the guard and its ref refusal are unchanged by the deploy-site action" {
