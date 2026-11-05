@@ -747,7 +747,7 @@ classify_commits() {
 
 declare -a EXCLUDED_COMMITS=()
 
-# is_excluded_commit <hash> — true when the commit touches at least one file and
+# is_excluded_commit <hash> -> status 0 when the commit touches at least one file and
 # every file it touches is under an excluded path. Rename detection is off, so a
 # rename is a delete and an add and both ends count.
 is_excluded_commit() {
@@ -1183,13 +1183,12 @@ if [[ $EXCLUDE_PATHS_GIVEN == true ]]; then
 fi
 info ""
 for i in "${!C_HASH[@]}"; do
-  printf '  %s%-9s%s %s %s%s%s
-'     "$YELLOW" "${C_CATEGORY[$i]}" "$RESET" "${C_SHORT[$i]}" "$DIM" "${C_SUBJECT[$i]}" "$RESET"
+  printf '  %s%-9s%s %s %s%s%s\n' \
+    "$YELLOW" "${C_CATEGORY[$i]}" "$RESET" "${C_SHORT[$i]}" "$DIM" "${C_SUBJECT[$i]}" "$RESET"
 done
 if (( ${#EXCLUDED_COMMITS[@]} > 0 )); then
   for hash in "${EXCLUDED_COMMITS[@]}"; do
-    printf '  %s%-9s %s %s%s
-' "$DIM" "excluded" "$(git rev-parse --short "$hash")" "$(git show -s --format=%s "$hash")" "$RESET"
+    printf '  %s%-9s %s %s%s\n' "$DIM" "excluded" "$(git rev-parse --short "$hash")" "$(git show -s --format=%s "$hash")" "$RESET"
   done
 fi
 info ""
