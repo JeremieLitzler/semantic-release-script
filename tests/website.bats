@@ -273,3 +273,9 @@ parsed_flags() {
   assert_equal "$(jq -r .badge <<<"$output")" "v0.5.0"
   assert_equal "$(jq -r .tag <<<"$output")" "v0.5.0"
 }
+
+@test "the feature list has an entry for --exclude-paths" {
+  run sed -n '/id="features"/,/<\/section>/p' "${SITE}/index.html"
+
+  assert_output --partial '>--exclude-paths</h3>'
+}
