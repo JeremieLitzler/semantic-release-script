@@ -64,6 +64,16 @@ _Avoid_: partial clone (a different git feature)
 A local tag set origin has moved past, left behind when fetching the tags fails. The baseline read from it can be older than the last release, so the next version computed from it is non-monotonic.
 _Avoid_: outdated tags, out-of-sync tags
 
+### Commit selection
+
+**Excluded path**:
+An entry of the list a consumer gives to keep some of its history out of a release: a folder or a single file, named from the repository root, that covers itself and everything under it. Matching is by whole path component and case-sensitive, as git paths are, so `output` covers neither `docs/output` nor `Output`. An entry is a literal path, never a pattern.
+_Avoid_: ignored path, excluded folder (an entry may be a file), pattern
+
+**Excluded commit**:
+A commit that touches at least one file and whose every touched file, both ends of a rename counted, is under an excluded path. It counts neither in the notes nor in the bump, and a range made only of excluded commits is **Nothing to release**. A commit that also touches any other path is kept, under its usual section, and counts in the bump in full; a commit that touches no file is kept too.
+_Avoid_: dropped commit, left-out commit, filtered commit
+
 ### Outcomes
 
 **Gate**:
