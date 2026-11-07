@@ -20,3 +20,6 @@ The repositories whose release workflow runs `release.sh`, each with the commit 
 - VueSupabaseBoilerplate
   - Repository: https://github.com/JeremieLitzler/VueSupabaseBoilerplate
   - Pinned SHA: `29b910f4b0693b28f36a5afddef07df7bf64ff67` (`v1.0.1`)
+- coge-audio-meditation-guides
+  - Repository: https://github.com/JeremieLitzler/coge-audio-meditation-guides
+  - Pinned SHA: `49b55dd5a9412d538179a75780991499203352e0` (`v1.1.0`)
